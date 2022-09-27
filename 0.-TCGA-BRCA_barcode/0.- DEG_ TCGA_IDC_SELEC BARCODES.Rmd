@@ -1,0 +1,298 @@
+---
+title: "0.- TFM: TCGA-BRCA: barcode"
+author: "Nuria Moragas"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 3
+  html_document:
+    highlight: tango
+    theme: cerulean
+    toc: yes
+    toc_float:
+      collapsed: true
+      smooth_scroll: true
+    toc_depth: 4
+    df_print: paged
+  word_document:
+    toc: yes
+header-includes:
+    - \usepackage{setspace}
+    - \doublespacing
+---
+
+
+In this document the patients that have been worked with will be downloaded and filtered.
+Here is a brief overview on analysis steps:
+
+  * - 0.1.- Work environment preparation
+  * - 0.2.- Download data
+  * - 0.3.- Data group seletion
+
+  
+# 0.1 - Work environment preparation
+
+First, directory definition: 
+
+```{r setup, include=FALSE, echo=FALSE}
+# cache= TRUE R save the results in the chunk.
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, cache = TRUE) 
+
+
+#___________________Directory definition____________________#
+
+#setwd("./Scrips_R/0.-TCGA-BRCA_barcode")
+
+
+```
+
+
+Library cal:
+```{r message=FALSE, warning=FALSE}
+#_________________________Packages_______________________#
+
+
+
+library(AnVIL)
+library(dplyr)
+library(knitr)
+
+#TCGA
+library(TCGAbiolinks)
+
+
+
+```
+
+
+<br>
+
+# 0.2.- Download data 
+
+Websites that have been taken as a basis:
+
+ - https://bioconductor.org/packages/devel/bioc/vignettes/TCGAbiolinks/inst/doc/analysis.html
+ 
+- #https://bioconductor.org/packages/devel/bioc/vignettes/TCGAbiolinks/inst/doc/download_prepare.html
+
+- http://openaccess.uoc.edu/webapps/o2/bitstream/10609/82726/6/mparragrandeTFM0618memoria.pdf 
+
+- https://www.costalab.org/wp-content/uploads/2020/11/R_class_D3.html#2_TCGA_data
+
+TCGA data about breast cancer (TCGA-BRCA) has been import using TCGAbiolinks package:
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+
+#_________________________Download_Data_______________________#
+
+
+
+#IMPORT TCGA_BRCA DATA: 
+
+# Some information of:
+TCGAbiolinks:::getProjectSummary("TCGA-BRCA") 
+
+
+# Query platform Illumina HiSeq with a list of barcode 
+#references GRCh37 (hg19) and GRCh36 (hg18).
+
+#Primary Tumor data download:
+query_STAR_TP <- GDCquery(
+    project = "TCGA-BRCA", 
+    data.category = "Transcriptome Profiling",
+    data.type = "Gene Expression Quantification",
+    experimental.strategy = "RNA-Seq",
+    workflow.type = "STAR - Counts", #, only abailabe here STAR-Counts
+    sample.type = c("Primary Tumor"))
+
+#Metastasis data download:
+query_STAR_TM <- GDCquery(
+    project = "TCGA-BRCA", 
+    data.category = "Transcriptome Profiling",
+    data.type = "Gene Expression Quantification",
+    experimental.strategy = "RNA-Seq",
+    workflow.type = "STAR - Counts", #, only abailabe here STAR-Counts
+    sample.type = c("Metastatic"))
+
+
+# Download a list of barcodes with platform IlluminaHiSeq_RNASeqV2
+GDCdownload(query_STAR_TM, method = "api")
+GDCdownload(query_STAR_TP, method = "api")
+
+
+# Finally, lets load the actual RNASeq data into R. rsem.genes.results as values
+BRCA_Rnaseq_STAR_TM <- GDCprepare(query_STAR_TM, save = T, save.filename = "0.- query_STAR_TM.rda")
+BRCA_Rnaseq_STAR_TP <- GDCprepare(query_STAR_TP, save = T, save.filename = "0.- query_STAR_TP.rda")
+
+load("0.- query_STAR_TM.rda")
+BRCA_Rnaseq_STAR_TM <- data
+
+load("0.- query_STAR_TP.rda")
+BRCA_Rnaseq_STAR_TP <- data
+
+
+
+```
+
+
+# 0.3.-  Data Grup selection
+
+      * - 0.3.1- Metastatic Samples (TM)
+      * - 0.3.2- Primary Samples (TP)
+
+
+## 0.3.1- Metastatic Samples (TM)    
+
+```{r}
+#________________________ Metastatic Selection ________________________#
+
+#DATA:BRCA_Rnaseq - primary_diagnosis 1106
+#Subtye selection:
+table(BRCA_Rnaseq_STAR_TM@colData$sample_type)
+
+#____________________________ Subtype Selection ______________________#
+
+table(BRCA_Rnaseq_STAR_TM@colData$primary_diagnosis)
+
+
+
+BRCA_TM_subtype <- which(substr(BRCA_Rnaseq_STAR_TM$primary_diagnosis,1,1106) == "Infiltrating duct carcinoma, NOS")
+
+my_samples_subty <- sort(c(BRCA_TM_subtype))
+
+BRCA_TM_filtered<- BRCA_Rnaseq_STAR_TM[,my_samples_subty]
+table(BRCA_TM_filtered@colData$primary_diagnosis)
+
+
+table(BRCA_TM_filtered@colData$gender)
+
+
+
+```
+
+
+The samples/barcodes of the selected patients are saved:
+```{r}
+
+saveRDS(object = BRCA_TM_filtered,
+        file = "0.- BRCA_TM_filtered.rda",
+        compress = FALSE)
+
+barcode_TM_IDC <- BRCA_TM_filtered@colData$barcode
+barcode_TM_IDC <- substr(barcode_TM_IDC, 1, 12)
+barcode_TM_IDC
+
+saveRDS(object = barcode_TM_IDC,
+        file = "0.- barcode_TM_IDC.rda",
+        compress = FALSE)
+```
+
+
+## 0.3.2 .- Primary Samples (TP)
+```{r}
+
+#____________________________ Primary Tumor  ________________________#
+#DATA:BRCA_Rnaseq - primary_diagnosis 1106
+#Subtye selection:
+
+table(BRCA_Rnaseq_STAR_TP@colData$sample_type)
+table(BRCA_Rnaseq_STAR_TP@colData$primary_diagnosis)
+
+
+#____________________________ Subtype Selection ______________________#
+#Subtye selection:
+table(BRCA_Rnaseq_STAR_TP@colData$primary_diagnosis)
+
+#selection of patients with the IDC subtype
+
+BRCA_Rnaseq_TP <- which(substr(BRCA_Rnaseq_STAR_TP$primary_diagnosis,1,1106) == "Infiltrating duct carcinoma, NOS")
+
+my_samples <- sort(c(BRCA_Rnaseq_TP))
+
+BRCA_Rnaseq_Subtype_TP<- BRCA_Rnaseq_STAR_TP[,my_samples]
+table(BRCA_Rnaseq_Subtype_TP@colData$primary_diagnosis)
+
+
+
+#____________________________ pathologic_stage ______________________#
+
+table(BRCA_Rnaseq_Subtype_TP@colData$ajcc_pathologic_stage)
+
+#Selection of state I (I,IA, IB) and II (II ,IIA,IIB)samples 
+BRCA_TP_pato_I <- which(substr(BRCA_Rnaseq_Subtype_TP$ajcc_pathologic_stage,1,1106) == "Stage I")
+BRCA_TP_pato_IA <- which(substr(BRCA_Rnaseq_Subtype_TP$ajcc_pathologic_stage,1,1106) == "Stage IA")
+BRCA_TP_pato_IB <- which(substr(BRCA_Rnaseq_Subtype_TP$ajcc_pathologic_stage,1,1106) == "Stage IB")
+BRCA_TP_pato_II <- which(substr(BRCA_Rnaseq_Subtype_TP$ajcc_pathologic_stage,1,1106) == "Stage II")
+BRCA_TP_pato_IIA <- which(substr(BRCA_Rnaseq_Subtype_TP$ajcc_pathologic_stage,1,1106) == "Stage IIA")
+BRCA_TP_pato_IIB <- which(substr(BRCA_Rnaseq_Subtype_TP$ajcc_pathologic_stage,1,1106) == "Stage IIB")
+
+my_samples_pato <- sort(c(BRCA_TP_pato_I, BRCA_TP_pato_IA, BRCA_TP_pato_IB,BRCA_TP_pato_II ,BRCA_TP_pato_IIA,BRCA_TP_pato_IIB))
+
+BRCA_TP_filtered<- BRCA_Rnaseq_Subtype_TP[,my_samples_pato]
+table(BRCA_TP_filtered@colData$ajcc_pathologic_stage)
+
+
+#____________________________ M0 ______________________#
+table(BRCA_TP_filtered@colData$ajcc_pathologic_m)
+
+#Selection of M0 samples
+BRCA_TP_M0 <- which(substr(BRCA_TP_filtered$ajcc_pathologic_m,1,1106) == "M0")
+
+my_samples_m0 <- sort(c(BRCA_TP_M0))
+
+BRCA_TP_filtered<- BRCA_TP_filtered[,my_samples_m0]
+
+table(BRCA_TP_filtered@colData$ajcc_pathologic_m)
+
+
+
+#____________________________ Gender ______________________#
+table(BRCA_TP_filtered@colData$gender)
+
+#the 7 men are eliminated
+
+BRCA_TP_gender <- which(substr(BRCA_TP_filtered$gender,1,1106) == "female")
+
+my_samples_gender <- sort(c(BRCA_TP_gender))
+BRCA_TP_filtered<- BRCA_TP_filtered[,my_samples_gender]
+
+table(BRCA_TP_filtered@colData$gender)
+```
+
+
+The barcodes of the selected patients are saved:
+
+```{r}
+saveRDS(object = BRCA_TP_filtered,
+        file = "0.- BRCA_TP_filtered.rda",
+        compress = FALSE)
+load( file = "0.- BRCA_TP_filtered.rda")
+
+barcode_TP_IDC <- BRCA_TP_filtered@colData$barcode
+barcode_TP_IDC <- substr(barcode_TP_IDC, 1,12)
+length(barcode_TP_IDC)
+
+
+saveRDS(object = barcode_TP_IDC,
+        file = "0.- barcode_TP_IDC.rda",
+        compress = FALSE)
+
+
+```
+
+
+
+
+
+
+
+
+
+```{r}
+
+barcode_TM_IDC = readRDS(file ="0.-barcode_TM_IDC.rda")
+barcode_TP_IDC = readRDS(file ="0.-barcode_TP_IDC.rda")
+```
+
+
+

@@ -1,0 +1,731 @@
+---
+title: "2.- TCGA_BRCA_RNA-seq"
+author: "Nuria Moragas"
+output:
+  html_document:
+ ---
+
+
+In this doc it have been anilized RNA-seq from TCGA_BRCA.
+
+  * - 2.1.- Work environment preparation
+  * - 2.2.- Loading data
+  * - 2.3.- Row data procesing, quality control and normalization
+  * - 2.4.- Differential gene expression analysis
+  * - 2.5.- Visualization
+ 
+
+* WEBS*
+
+TCGAbiolinks
+https://bioconductor.org/packages/devel/bioc/vignettes/TCGAbiolinks/inst/doc/analysis.html
+
+http://openaccess.uoc.edu/webapps/o2/bitstream/10609/82726/6/mparragrandeTFM0618memoria.pdf 
+
+https://www.costalab.org/wp-content/uploads/2020/11/R_class_D3.html#2_TCGA_data
+
+https://f1000research.com/articles/5-1408
+
+
+
+  
+# 2.1 - Work environment preparation
+
+```{r setup, include=FALSE}
+# cache= TRUE R save the results in the chunk.
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, cache = TRUE) 
+
+
+#___________________Directory definition____________________#
+
+
+setwd(".\Scrips_R")
+
+
+```
+
+```{r message=FALSE, warning=FALSE}
+#_________________________Packages_______________________#
+
+#Load packages
+library(limma)
+library(AnVIL)
+library(dplyr)
+
+#TCGA
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(edgeR)
+
+#xlsx
+library(rJava)
+library(xlsx)
+
+#Plots
+library(gplots)
+library(RColorBrewer)
+library(ggplot2)
+#Volcano
+library(ggrepel)
+library(EnhancedVolcano)
+library(DESeq2)
+
+#PCA plot
+library(devtools)
+library(factoextra
+
+```
+
+
+
+```{r}
+#_________________________ COLORS _________________________
+
+colors_Gr_Bw <- c( "#35978F", "#80CDC1", "#C7EAE5", "#FFFFFF" , "#F6E8C3", "#DFC27D", "#BF812D" ,"#8C510A")
+colors_bambino<- c("#AB0302", "#871C0F" , "#912303", "#DB6B3E", "#D37C1B", "#704511", "#BFAF97", "#6A5224", "#CBBEA3", "#6D4C03", "#BA9951", "#8F7C50", "#B1AC76", "#A6A48A", "#858465", "#566048", "#8FB9C4", "#AACFD9", "#607C85", "#8EA3AD")
+
+```
+
+
+
+# 2.2.- Loading data 
+
+TCGA data about breast cancer (TCGA-BRCA) has been import using TCGAbiolinks package:
+
+```{r message=FALSE, warning=FALSE, eval=FALSE, include=FALSE}
+
+#_________________________Loading_samples barcode_______________________#
+
+barcode_TM_IDC = readRDS(file = "1.-barcode_TM_IDC.rda")
+barcode_TP_IDC = readRDS(file = "1.-barcode_TP_IDC.rda")
+
+IDC_TM_TP_barcode <- c(barcode_TM_IDC, barcode_TP_IDC )
+
+#_________________________Downloading_Data_______________________#
+query_STAR <- GDCquery(
+    project = "TCGA-BRCA", 
+    barcode = IDC_TM_TP_barcode,
+    data.category = "Transcriptome Profiling",
+    data.type = "Gene Expression Quantification",
+    experimental.strategy = "RNA-Seq",
+    workflow.type = "STAR - Counts", #, only abailabe here STAR-Counts
+    sample.type = c("Metastatic", "Primary Tumor"))
+
+
+# Download a list of barcodes with platform IlluminaHiSeq_RNASeqV2
+GDCdownload(query_STAR, method = "api")
+
+
+# Finally, lets load the actual RNASeq data into R. rsem.genes.results as values
+BRCA_Rnaseq_STAR <- GDCprepare(query_STAR, save = T, save.filename = "2.- query_STAR_TM_TP.rda")
+load(file = "2.- query_STAR_TM_TP.rda")
+BRCA_Rnaseq_STAR <- data
+
+#verification of the selection
+table(BRCA_Rnaseq_STAR@colData$sample_type)
+table(BRCA_Rnaseq_STAR@colData$primary_diagnosis)
+table(BRCA_Rnaseq_STAR@colData$ajcc_pathologic_m)
+table(BRCA_Rnaseq_STAR@colData$gender)
+dim(BRCA_Rnaseq_STAR@colData) #[1] 536   85
+
+table(BRCA_Rnaseq_STAR@colData$sample_type, BRCA_Rnaseq_STAR@colData$site_of_resection_or_biopsy)
+```
+
+
+# 2.3.- Row data procesing, quality control and normalization
+
+Before performing the differential expression analysis (DEG), row data download have been prepossessing. Three parts, data groups selection, quality control and normalization.
+
+
+  * - 2.3.1.- DEG List Object
+  * - 2.3.2.- Filtering - quality control
+  * - 2.3.3.- Normalization - quality control
+
+
+
+## 2.3.1.- DEG List Object
+  
+```{r message=FALSE, warning=FALSE}
+#______________________________  1 DGEList OBJECT ______________________________#
+
+
+# 1  filtering. remove gens which low amount of counts
+
+dge = DGEList( # creating a DGEList object
+  counts= assay(BRCA_Rnaseq_STAR),
+  samples= colData(BRCA_Rnaseq_STAR),
+  #group = BRCA_Rnaseq_STAR$sample_type,
+  genes= as.data.frame(rowData(BRCA_Rnaseq_STAR)))
+dim(dge) #[1] 60660   536
+
+```
+
+
+```{r message=FALSE, warning=FALSE}
+#______________________________ Quality Control ______________________________#
+
+# Quality control -> unfiltered distribution
+log_cpm1 <- cpm(dge, log=TRUE)    
+L <- mean(dge$samples$lib.size) * 1e-6
+M <- median(dge$samples$lib.size) * 1e-6
+
+lcpm.cutoff <- log2(10/M + 2/L)
+nsamples <- ncol(dge)
+col <- brewer.pal(nsamples, "Paired")
+
+par(mfrow=c(2,3))
+
+
+png(file="Plots_results/2.1.- Density plot_Row_data_QC.png")
+plot(density(log_cpm1[,1]), col=colors_Gr_Bw , lwd=2, ylim=c(0,0.6), las=2, main="", xlab="",  cex.lab = 2, cex.axis = 1.5  #mida y #mida x #Mida titol
+     )
+title(main="A. Raw data", xlab="Log-cpm", cex.lab = 2, cex.main = 3, family="Calibri Light")
+abline(v=lcpm.cutoff, lty=3)
+for (i in 2:nsamples){
+  den <- density(log_cpm1[,i])
+  lines(den$x, den$y, col=col[i], lwd=2)
+}
+dev.off()
+
+#PLOT no filtered- grafico distribucion
+#lib.col<-c("green","red")[group]
+#boxplot(log_cpm1, xlab="", ylab="Log2 counts per millon", col=colors_Gr_Bw, las=2, main="Boxplot of logCPMs: no normalized")# pars=list(cex.lab=0.8, cex.axis=0.8))
+```
+
+
+## 2.3.2.- Filtering - quality control 
+
+```{r message=FALSE, warning=FALSE}
+#______________________________ Filtering ________________________________________#
+
+#Genes without expression or without sufficient representation have been eliminated, in order to reduce the problems associated with multiple tests.
+
+# Is required at least 10-15 counts / gene.
+# Automatic filter by filterByExpr function (edgeR package) 
+
+
+keep <- filterByExpr (dge, min.count = 10)# defining which genes to keep
+dge_filt = dge[keep,,keep.lib.sizes=FALSE] # filtering the dge object
+dim(dge_filt) #[1] 18126   536
+table(rowSums(dge_filt$counts==0)==792) #All false
+
+```
+
+
+# 2.3.3.- Normalization - quality control
+
+```{r message=FALSE, warning=FALSE}
+#______________________________ Quality control  ______________________________
+
+# Density Plot:
+
+log_cpm_F <- cpm(dge_filt, log=TRUE)    
+L_F <- mean(dge_filt$samples$lib.size) * 1e-6
+M_F <- median(dge_filt$samples$lib.size) * 1e-6
+
+lcpm.cutoff_F <- log2(10/M_F + 2/L_F)
+nsamples_F <- ncol(dge_filt)
+col <- brewer.pal(nsamples_F, "Paired")
+
+png(file="Plots_results/2.1.- Density plot_filtered_data_QC.png")
+plot(density(log_cpm_F[,1]), col=colors_Gr_Bw , lwd=2, ylim=c(0,0.2), las=2, main="", xlab="",  cex.lab = 2, cex.axis = 1.5  #mida y #mida x #Mida titol
+     )
+title(main="B. Filtered  data", xlab="Log-cpm", cex.lab = 2, cex.main = 3, family="Calibri Light")
+abline(v=lcpm.cutoff_F, lty=3)
+for (i in 2:nsamples_F){
+  den <- density(log_cpm_F[,i])
+  lines(den$x, den$y, col=col[i], lwd=2)
+}
+dev.off()
+```
+
+
+
+# 2.3.3.- Normalization - quality control
+
+```{r}
+#_______________________________ Normalization _______________________________#
+
+#NORMALIZATION
+dge_norma = calcNormFactors(dge_filt,method="TMM")#TMM - trimmed mean of M-values
+
+#save normalized data
+saveRDS(object = dge_norma, file = "2.- BRCA_RNAseq_dge_norma.rda", compress = FALSE)
+dge_norma <- readRDS(file = "2.- BRCA_RNAseq_dge_norma.rda")
+
+```
+
+```{r}
+
+#_______________________________ Quality Control _______________________________#
+
+log_cpm_F <- cpm(dge_norma, log=TRUE)    
+L_F <- mean(dge_norma$samples$lib.size) * 1e-6
+M_F <- median(dge_norma$samples$lib.size) * 1e-6
+
+lcpm.cutoff_F <- log2(10/M_F + 2/L_F)
+nsamples_F <- ncol(dge_norma)
+col <- brewer.pal(nsamples_F, "Paired")
+
+par(mfrow=c(1,2))
+
+png(file="Plots_results/2.1.- Density plot_normalized_data_QC.png")
+plot(density(log_cpm_F[,1]), col=colors_Gr_Bw , lwd=2, ylim=c(0,0.2), las=2, main="", xlab="",  cex.lab = 2, cex.axis = 1.5  #mida y #mida x #Mida titol
+     )
+title(main="B. Normalized  data", xlab="Log-cpm", cex.lab = 2, cex.main = 3, family="calibri")
+abline(v=lcpm.cutoff_F, lty=3)
+for (i in 2:nsamples_F){
+  den <- density(log_cpm_F[,i])
+  lines(den$x, den$y, col=col[i], lwd=2)
+}
+dev.off()
+```
+
+
+## 2.4.- Differential gene expression analysis
+
+    2.4.1.- Differential gene expression Analysis
+    2.4.2.- Visualization
+
+
+## 2.4.1.- Differential gene expression Analysis - Limma-Voom:
+
+    * 1.- Design Matrix
+    * 2.- VOOM
+    * 3.- Fit model
+    * 4.- Previsualization
+    * 5.- DEG: Exploratory analysis of the read counts table
+    * 6.- DEG: from top to bottom - topTable 
+    
+   
+    
+```{r}
+#__________________GROUPS CREATION __________________
+
+#Obtener clinical data M i convertir en factor (Dues maneres de cridar-ho)
+clinical_data=colData(BRCA_Rnaseq_STAR)
+saveRDS(object = clinical_data, file = "2.- clinical_data_rna.rda", compress = FALSE)
+clinical_data <- readRDS(file = "2.- clinical_data_rna.rda")
+table(clinical_data$sample_type)
+dim(clinical_data)
+
+group=factor(clinical_data$shortLetterCode)
+
+table(group) 
+#Metastatic(TM) Primary Tumor(TP) 
+#    6           530 
+#---------------------
+
+  
+#Define SAMPLE_TYPE Primary TUmor as reference level:  
+#"Metastatic" "Primary Tumor" 
+
+group=relevel(group, ref = "TP")
+
+table(group)
+#group
+# TP  TM 
+# 530   6 
+
+```
+**1.- Design Matrix **    
+    
+```{r}
+#___________________________1.- DESIGN MATRIX____________________________#
+#Matrix generation. Definira les condicions a comparar al analisis DE. ~ aquest sinbol representa que estem construint una formula
+
+dge_norma$samples$group<- group
+
+design=model.matrix(~0+group) #group defined before
+
+
+#Re-name matrix
+colnames(design)<- gsub("group", "", colnames(design)) # group name delate
+
+#CONTRAST MATRIX
+contr.matrix <- makeContrasts(
+  TMvsTP = TM-TP,
+  levels= colnames(design)
+)
+contr.matrix
+```
+**2.- VOOM **
+```{r}
+#___________________________2.- VOOM __________________________________#
+
+#Moreover, to apply limma on RNA-seq, we need to convert the data to have a similar variance as arrays. This is done with the VOOM method.
+
+png(file="Plots_results/2.2.- Voom_Mean-variance trend.png")
+v = voom(dge_norma, design,plot=TRUE, save.plot = TRUE)#Convert data to have a similar variance as arrays
+dev.off()
+v$targets
+
+#FIGURE: Figure 6.14: Mean-variance relationsip corresponding to the Pickrell dataset.
+```
+
+**3.- Fit Model **
+```{r}
+
+#___________________________3.- FIT MODEL ______________________________#
+
+# 3.- fit model to data given design. 
+#Finally, using lmFit lets fit a series of linear models, one to each of the probes. These data will then be fed to eBayes to produce a complex object which holds a number of statistics that we can use to rank the differentially expressed genes.a series of lineal model
+
+fit = lmFit(v, design)
+
+#beta parameters calculation
+cfit = contrasts.fit(fit, contrast=contr.matrix)
+
+#p-value calculation
+efit = eBayes(cfit) #eBayes produce complex object which holds a number of statistics that we can use to rank the differentially expressed genes.
+
+png(file="Plots_results/2.2.- FInal model_ mean-variance trend.png")
+plotSA(efit)
+dev.off()
+
+#save
+
+saveRDS(object = efit, file = "2.- efit.rda", compress = FALSE)
+efit <- readRDS(file = "2.- efit.rda")
+
+
+saveRDS(object = v, file = "2.- v.rda", compress = FALSE)
+v <- readRDS(file = "2.- v.rda")
+data.frame(v)
+```
+
+**4.- Pre-visualitzation **
+
+*PCA *
+https://isglobal-brge.github.io/Master_Bioinformatics/rnaseq-data-analysis.html#pca
+
+PRincipal Components Analysis (PCA )
+
+```{r message=FALSE, warning=FALSE}
+
+#--------------------------- PCA PLOT-------------------------
+
+#plot_PCA = function(v, condition_variable){
+#  group = factor(v$targets[, condition_variable])
+#  pca = prcomp(t(v$E))
+#  # Take PC1 and PC2 for the plot
+#  plot(pca$x[,1:2],col=group, pch=19)
+#  # include a legend for points
+#  legend("bottomleft", inset=.01, levels(group), pch=19, col=1:length(levels(group)))
+#  return(pca)
+#}
+
+#res_pca = plot_PCA(v, "site_of_resection_or_biopsy")
+#res_pca = plot_PCA(v, "paper_BRCA_Subtype_PAM50")
+#res_pca = plot_PCA(v, "sample_type")
+
+```
+
+```{r}
+#PCA OPCIO3
+
+#http://www.sthda.com/english/wiki/fviz-pca-quick-principal-component-analysis-data-visualization-r-software-and-data-mining
+
+
+pca = prcomp(t(v$E))
+
+fviz_pca_ind(pca)
+group = factor(v$targets[, "sample_type"])
+
+png(file="Plots_results/2.3.- PCA_sample_type.png", width =  400 , height = 300 , units = "px" )
+fviz_pca_ind(pca,
+             geom.ind = "point", # show points only (nbut not "text")
+             #pointshape = 20,
+             title = "Principal Component Analysis",
+             xlab = "PC1", ylab = "PC2", #title axis
+             col.ind = group, # color by groups
+             palette = c("#AB0302", "#108372"),
+             addEllipses = TRUE, # Concentration ellipses
+             ellipse.level= 0.90,
+             #ellipse.type = "confidence",
+             legend.title = "Sample Type"
+ 
+            #ggtheme = theme_gray(), palette = "jco"
+             ) + 
+  theme(
+    legend.text = element_text(size = 15),
+    axis.text = element_text(size = 15),
+    axis.title.x = element_text(size = 15),
+    axis.title.y = element_text(size = 15),
+    plot.title = element_text(size = 20)
+  )
+dev.off()
+
+
+
+"site_of_resection_or_biopsy"
+"paper_BRCA_Subtype_PAM50"
+```
+
+```{r}
+
+pca = prcomp(t(v$E))
+
+fviz_pca_ind(pca)
+group = factor(v$targets[, "site_of_resection_or_biopsy"])
+
+png(file="Plots_results/2.3.- PCA_site_of_resection_or_biopsy.png", width =  600 , height = 300 , units = "px" )
+fviz_pca_ind(pca,
+             geom.ind = "point", # show points only (nbut not "text")
+             pointshape = 20,
+             title = "Principal Component Analysis",
+             xlab = "PC1", ylab = "PC2", #title axis
+             col.ind = group, # color by groups
+             palette = c("#DFC27D", "#AB0302", "#108372", "#8C510A","tomato"  ),
+             addEllipses = F, # Concentration ellipses
+             ellipse.level= 0.90,
+             #ellipse.type = "confidence",
+             legend.title = "Site"
+ 
+            #ggtheme = theme_gray(), palette = "jco"
+             ) + 
+  theme(
+    legend.text = element_text(size = 15),
+    axis.text = element_text(size = 15),
+    axis.title.x = element_text(size = 15),
+    axis.title.y = element_text(size = 15),
+    plot.title = element_text(size = 20)
+  )
+dev.off()
+
+```
+
+```{r}
+
+pca = prcomp(t(v$E))
+
+fviz_pca_ind(pca)
+group = factor(v$targets[, "paper_BRCA_Subtype_PAM50"])
+
+png(file="Plots_results/2.3.- PCA_paper_BRCA_Subtype_PAM50.png", width =  400 , height = 300 , units = "px" )
+fviz_pca_ind(pca,
+             geom.ind = "point", # show points only (nbut not "text")
+             pointshape = 20,
+             title = "Principal Component Analysis",
+             xlab = "PC1", ylab = "PC2", #title axis
+             col.ind = group, # color by groups
+             palette = c("#DFC27D", "#AB0302", "#108372", "#8C510A","tomato"  ),
+             addEllipses = T, # Concentration ellipses
+             ellipse.level= 0.90,
+             #ellipse.type = "confidence",
+             legend.title = "Subtype"
+ 
+            #ggtheme = theme_gray(), palette = "jco"
+             ) + 
+  theme(
+    legend.text = element_text(size = 15),
+    axis.text = element_text(size = 15),
+    axis.title.x = element_text(size = 15),
+    axis.title.y = element_text(size = 15),
+    plot.title = element_text(size = 20)
+  )
+dev.off()
+
+```
+
+
+**5.- Exploratory analysis of the read counts table **
+
+*DE gens amb p-value *
+
+For a quick look at differential expression levels, the number of significantly up- and down-regulated genes can be summarised in a table. Significance is defined using an adjusted p-value cutoff that is set at 5% by default. 
+
+```{r}
+#__________Examining the number of DE genes
+#segons p-value 0.05:
+DE_genes_pval <- decideTests(efit, p.value = 0.05, adjust.method = "none")
+summary(DE_genes_pval)
+
+
+#Gene list:
+DEG_pv <- which(DE_genes_pval[,1]!=0)
+length(DEG_pv)
+head(efit$genes$gene_name[DEG_pv], n=1689)
+
+```
+83 gens down en Metastasi relatiu a tumor primary
+68 gens up en Metastasi relatiu a Tumor Primary
+
+This genes are saved:
+
+```{r}
+# Results save:
+
+saveRDS(object = DE_genes_pval, file = "2.- DE_genes_pval_noaj.rda", compress = FALSE)
+DE_genes_pval <- readRDS(file = "2.- DE_genes_pval_noaj.rda")
+
+```
+
+**6.- DEG from top to bottom - topTable **
+
+Top DEg can be listed using "topTreat" or "topTable":
+Apareixen tots els gens, t has de fixar amb el adj P Val menor a 0,05 per saber quins son significatius.
+
+```{r}
+
+#All genes
+all_gene_p <- topTreat(efit, coef = 1, n= Inf)
+dim(all_gene_p ) #[1] 18126    16
+head(all_gene_p )
+all_gene_p 
+typeof(all_gene_p)
+
+
+saveRDS(object = all_gene_p, file = "2.- all_gene_p.rda", compress = FALSE)
+all_gene_p <- readRDS(file = "2.- all_gene_p.rda")
+
+
+
+#Top genes
+topDEG<- topTreat(efit, coef = 1, n= 1689)
+dim(topDEG) #[1] 1689 16
+topDEG
+
+saveRDS(object = DE_genes_pval, file = "2.- topDEG_topTreat.rda", compress = FALSE)
+topDEG <- readRDS(file = "2.- topDEG.rda")
+
+```
+
+DEG table save ata csv file:
+```{r}
+#dir.create("DEG_TPvsTM") #crea un directori
+
+dir_results<- file.path("C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/Plots_results", 
+                      "2.- DEG_Top_genes_TPvsTM.csv")
+
+write.csv(topDEG, dir_results)
+
+
+dir_results<- file.path("C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/Plots_results", 
+                      "2.- DEG_Top_genes_TPvsTM.xlsx")
+write.xlsx(topDEG, dir_results, sheetNames= "Sheet1", col.names= T, row.names= T, append = F)
+
+```
+
+##  2.4.2.- Visualization
+
+**7.- DEG graphical representation**
+
+**plotMD**
+plotMD: logFC vs average log-CPM.
+
+```{r}
+#_________________plotMD______________
+
+png(file="Plots_results/2.4.- plotMD_logFC vs average log-CPM.png", width =  500 , height = 400 , units = "px" 
+    )
+plotMD(efit, hl.col=c("#35978F", "#8C510A" ), main= "Mean-Difference TM vs TP",column = 1, status=DE_genes_pval[,1], xlim=c(-3,15))  
+  
+dev.off()
+
+
+
+```
+
+
+#### VOLCANO PLOT
+
+```{r}
+
+#-------------------------------- VOLCANO PLOT -------------------------
+
+#OPCIO 1
+dds <- DESeq(dge_norma)
+
+png(file="Plots_results/2.4.- Volcano plot DEG log-CPM.png",  width =  500 , height = 400 , units = "px" 
+    )
+EnhancedVolcano(topDEG,
+  lab = rownames(topDEG),
+  x = "logFC",
+  y = "P.Value",
+  pCutoff = 10e-4,
+  FCcutoff = 1.333,
+  xlim = c(-5.5, 5.5),
+  ylim = c(0, -log10(10e-12)),
+  pointSize = 1.0,
+  labSize = 2.0,
+  title = '',
+  subtitle = '',
+  caption = 'FC cutoff, 1.333; p-value cutoff, 10e-4',
+  legendPosition = "right",
+  legendLabSize = 10,
+  col = c('grey30', "#35978F", 'gray81', "#8C510A"),
+  colAlpha = 0.5,
+  drawConnectors = FALSE,
+  hline = c(10e-8),
+  widthConnectors = 0.5,
+  max.overlaps = 15)
+dev.off()
+
+
+```
+
+#### Clustering
+
+
+```{r}
+
+Tm.vs.TP.topgenes <- topDEG$gene_id [1:40]
+i <- which(v$genes$gene_id %in% Tm.vs.TP.topgenes)
+
+DEG_pv_name<- efit$genes$gene_name[DEG_pv]
+
+
+ # define the color palette for the plot
+hmcol = colorRampPalette(rev(brewer.pal(9, "BrBG")))(256)
+
+# perform complete linkage clustering
+clust = function(x) hclust(x, method="complete")
+# use the inverse of correlation as distance.
+dist = function(x) as.dist((1-cor(t(x)))/2)
+
+# Show green color for genes that also show up in DE analysis
+colorLimmaGenes = ifelse(
+  # Given a vector of boolean values
+  (DEG_pv_name %in% v$genes$gene_name),
+  "green", # if true, return green for that value
+  "white" # if false, return white for that value
+)
+
+
+relevant_gene_names <- v$genes[DEG_pv_name, "gene_name" ]
+# As before, we want this to be a factor
+d_resp = as.factor(v$targets$definition)
+
+
+png(file="Plots_results/2.5.- HeatMap DEG_cluster.png",  width =  700 , height = 600 , units = "px" 
+    )
+# As you've seen a good looking heatmap involves a lot of parameters
+gene_heatmap = heatmap.2(
+  v$E[i,],
+  scale="row",          # scale the values for each gene (row)
+  density.info="none",  # turns off density plot inside color legend
+  trace="none",         # turns off trace lines inside the heat map
+  col=hmcol,            # define the color map
+  labRow=relevant_gene_names, # use gene names instead of ensembl annotation
+  #RowSideColors=colorLimmaGenes,
+  labCol=FALSE,         # Not showing column labels
+  ColSideColors=as.character(as.numeric(d_resp)), # Show colors for each response class
+  dendrogram="both",    # Show dendrograms for both axis
+  hclust = clust,       # Define hierarchical clustering method
+  distfun = dist,       # Using correlation coefficient for distance function
+  cexRow=.6,            # Resize row labels
+  margins=c(1,5)        # Define margin spaces
+)
+
+dev.off()
+
+```
+
+
+
+
+
+
+
+

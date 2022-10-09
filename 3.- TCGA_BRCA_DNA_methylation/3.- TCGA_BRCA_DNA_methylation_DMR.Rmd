@@ -1,0 +1,1060 @@
+---
+title: "3.- TCGA_BRCA_DNA_methylation_DMR"
+author: "Nuria Moragas"
+date: "July 2022"
+output:
+  html_document:
+---
+
+In this doc it have been anilized methylation profile from TCGA_BRCA.
+
+
+  * - 3.1.- Work environment preparation
+  * - 3.2.- Methylation Data Download
+  * - 3.3.- Row data procesing and quality control
+  * - 3.4.- Differential methylation analysis - CpG
+  * - 3.5.- Visualization - CpG
+  * - 3.6.- CpGs POSITION 
+  
+
+*WEBS*
+
+https://bioconductor.org/packages/devel/bioc/vignettes/TCGAbiolinks/inst/doc/analysis.html
+http://openaccess.uoc.edu/webapps/o2/bitstream/10609/82726/6/mparragrandeTFM0618memoria.pdf 
+https://www.costalab.org/wp-content/uploads/2020/11/R_class_D3.html#2_TCGA_data
+https://bioconductor.org/packages/devel/bioc/vignettes/TCGAbiolinks/inst/doc/download_prepare.html
+http://bioconductor.org/packages/release/workflows/vignettes/TCGAWorkflow/inst/doc/TCGAWorkflow.html
+   
+# 3.1 -Work environment preparation
+
+This part include:
+  - 3.1.1 - Directory Definition
+  - 3.1.2 - Library Call
+  - 3.1.3 - Color Palette
+  
+
+
+## 3.1.1 - Directory Definition
+
+```{r message=FALSE, warning=FALSE}
+
+#___________________Directori definition____________________#
+
+setwd("./Scrips_R/3.- TCGA_BRCA_DNA_methylation")
+
+```
+
+## 3.1.2 - Library Call:
+
+```{r message=FALSE, warning=FALSE}
+#_________________________Packages_______________________#
+
+library(knitr)
+library(dplyr)
+library(minfi )
+
+library(edgeR)
+library(limma)
+
+library(TCGAbiolinks)
+library(MultiAssayExperiment)
+library(SummarizedExperiment)
+
+library(RColorBrewer)
+library(ggplot2)
+library(EnhancedVolcano)
+
+```
+
+## 3.1.3 - Color Palette:
+
+```{r}
+ #...................................COLORS........................
+
+colors_Gr_Bw <- c( "#35978F", "#80CDC1", "#C7EAE5", "#FFFFFF" , "#F6E8C3", "#DFC27D", "#BF812D" ,"#8C510A")
+colors_bambino<- c("#AB0302", "#871C0F" , "#912303", "#DB6B3E", "#D37C1B", "#704511", "#BFAF97", "#6A5224", "#CBBEA3", "#6D4C03", "#BA9951", "#8F7C50", "#B1AC76", "#A6A48A", "#858465", "#566048", "#8FB9C4", "#AACFD9", "#607C85", "#8EA3AD")
+
+```
+
+  
+
+# 3.2.- Methylation Data Download
+
+
+```{r eval=FALSE, message=FALSE, warning=FALSE}
+
+#_________________________Loading_samples barcode_______________________#
+
+barcode_TM_IDC <-readRDS(file = '0.-barcode_TM_IDC.rda')
+barcode_TP_IDC = readRDS(file = "0.-barcode_TP_IDC.rda")
+load("0.-barcode_TP_IDC.rda")
+
+
+IDC_TM_TP_barcode <- c(barcode_TM_IDC, barcode_TP_IDC )
+
+saveRDS(object = IDC_TM_TP_barcode,
+        file = "0.- IDC_TM_TP_barcode",
+        compress = FALSE)
+
+
+#_________________________Download_Data_______________________#
+
+
+
+
+#IMPORT METHYLATION TCGA_BRCA DATA: 
+
+# SOme information:
+TCGAbiolinks:::getProjectSummary("TCGA-BRCA") 
+
+
+# Query platform Illumina HiSeq with a list of barcode 
+#references GRCh37 (hg19) and GRCh36 (hg18).
+query_MET <- GDCquery(
+    project = "TCGA-BRCA", 
+    barcode = IDC_TM_TP_barcode,
+    data.category = "DNA methylation",
+    data.type = "Methylation beta value",
+    platform = "Illumina Human Methylation 450", # Whith my computer is not possible download 450k
+    legacy = TRUE,
+    sample.type = c("Primary Tumor", "Metastatic"))
+
+
+#To visualize the query results in a more readable way, we can use the command getResults.
+            brca_met = getResults(query_MET) # make results as table
+            # head(lihc_res) # data of the first 6 patients.
+            colnames(brca_met) # columns present in the table
+            
+            head(brca_met)
+            summary(factor(brca_met$sample_type)) #Metastatic Primary Tumor 
+                                                  #  2           314 
+            
+            brca_met%>%
+  group_by(sample_type)%>%
+  summarise(n=n())%>%
+  mutate(Perc.= n/sum(n)*100)
+
+            summary(factor(brca_met$data_type))
+            summary(factor(brca_met$experimental_strategy))
+            summary(factor(brca_met$data_format))
+            summary(factor(brca_met$analysis_workflow_type ))
+            
+   
+
+# Download a list of barcodes with platform IlluminaHiSeq_RNASeqV2
+GDCdownload(query_MET, method = "api")
+
+
+BRCA_methylation <- GDCprepare(query_MET)
+
+
+        #Look insdie this data:
+         # Obtain the RNA-seq count matrices and rowData to see gene mapping information. How many genes and how many samples are included there?
+
+      dim(assay(BRCA_methylation))# [1] 27578   316
+
+          #assay() Make a matrix
+      head(assay(BRCA_methylation)[,1:10]) # expression of first 6 genes and first 10 samples
+      #Defult assau: unstranded
+      
+
+      head(rowData(BRCA_methylation, use.names=TRUE))  # ensembl id and gene id of the first 6 genes.
+      
+# DNA Methylation levels:
+      BRCA_methylation %>% assay %>% head %>% as.data.frame
+
+
+# In order to have not to reapeat the previos operation (GDCprepare(query)), BRCA.Rnaseq.SE is sav as RDS file. Is id needed, load it.
+
+saveRDS(object = BRCA_methylation,
+        file = "3.-BRCA_Methylation_metastasi_450_primariTumor_select.rda",
+        compress = FALSE)
+
+saveRDS(object = BRCA_methylation,
+        file = "3.-BRCA_Methylation_metastasi_450_primariTumor_select.rda_",
+        compress = T)
+```
+
+```{r}
+      #Loading data:
+BRCA_methylation = readRDS(file = "3.-BRCA_Methylation_metastasi_450_primariTumor_select.rda")
+
+
+BRCA_methylation%>%rowRanges%>%as.data.frame%>%head
+
+#You can access the DNA methylation levels with assay.
+
+BRCA_methylation%>% assay %>% head %>% as.data.frame
+```
+
+ 
+# 3.3 - Row data procesing and quality control
+
+      * - 3.3.1.- Data Group checking
+      * - 3.3.2.- Data Filtering: NA values and same beta-values Delation
+      * - 3.3.3.- Quality control. Data exploration - visualization    
+      
+      
+
+      
+## 3.3.1.- Data Grup comprovations
+
+
+```{r}
+#________________________ Data Group checking ________________________#
+
+#DATA:BRCA_Rnaseq - primary_diagnosis 1106
+#Subtye selection:
+
+
+table(BRCA_methylation@colData$sample_type) #M 4   PT 319
+table(BRCA_methylation@colData$primary_diagnosis)
+table(BRCA_methylation@colData$ajcc_pathologic_m) #M0 323
+table(BRCA_methylation@colData$ajcc_pathologic_stage)
+#Stage I  Stage IA  Stage IB  Stage II Stage IIA Stage IIB 
+#       38        34         3         3       143       102 
+table(BRCA_methylation@colData$primary_diagnosis) # IDC 323
+table(BRCA_methylation@colData$gender)# female 323
+dim(BRCA_methylation@colData) #[1] 323   85
+
+
+```
+
+## 3.3.2.- Data Filtering: NA values and same beta-values Delation
+     
+    * A.- remove probes with NA    
+    * B.- remove probes that match to chromosome  X and Y (Not applay)
+    * C.- remove SNPs overlapped probe
+    * D .- SNPs with maf <= 0.05
+    * E.- Removing probes that have been demonstrated to map to multiple places in the genome.
+    
+```{r}
+as.data.frame(BRCA_methylation@rowRanges)
+length(BRCA_methylation@rowRanges)#485577
+```
+
+```{r}
+##___________ F iltering methylation data ______________#
+
+
+#met matrix
+BRCA_met_matrix <- as.data.frame(SummarizedExperiment::assay(BRCA_methylation))
+head(BRCA_met_matrix)
+dim(BRCA_met_matrix ) #[1] 485577    323
+
+
+## A.- remove probes with NA
+probe.na <- rowSums(is.na(BRCA_met_matrix ))
+
+table(probe.na == 0)
+ #FALSE   TRUE 
+#109604 375973 
+
+# chose those has not NA values in rows
+probe <- probe.na[probe.na == 0]
+BRCA_met_matrix <- BRCA_met_matrix[row.names(BRCA_met_matrix) %in% names(probe), ]
+dim(BRCA_met_matrix)#[1] 375973    323 
+rm(probe.na, probe)
+
+# get the 450k annotation data
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+ann450k <- getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+
+## -- NOT APPLIED -- because there are only women. 
+## B.  remove probes that match to chromosome  X and Y 
+#keep <- !(row.names(BRCA_met_matrix ) %in% ann450k$Name[ann450k$chr %in% c("chrX","chrY")])
+#table(keep)
+#BRCA_met_matrix  <- BRCA_met_matrix [keep, ]
+#rm(keep) 
+
+
+## C. remove SNPs overlapped probe
+
+
+table(is.na(ann450k$Probe_rs))
+# probes without snp
+no.snp.probe <- ann450k$Name[is.na(ann450k$Probe_rs)]
+snp.probe <- ann450k[!is.na(ann450k$Probe_rs), ]
+
+
+
+## D .- SNPs with maf <= 0.05
+snp5.probe <- snp.probe$Name[snp.probe$Probe_maf <= 0.05]
+# filtre BRCA_met_matrix
+BRCA_met_matrix <- BRCA_met_matrix[row.names(BRCA_met_matrix) %in% c(no.snp.probe, snp5.probe), ]
+
+#remove no-further needed dataset
+rm(no.snp.probe, snp.probe, snp5.probe)
+
+
+##E.- Removing probes that have been demonstrated to map to multiple places in the genome.
+# list adapted from https://www.tandfonline.com/doi/full/10.4161/epi.23470
+
+crs.reac <- read.csv("cross_reactive_probe.chen2013.csv")
+crs.reac <- crs.reac$TargetID[-1]
+
+# filtre met
+BRCA_met_matrix <- BRCA_met_matrix[ -which(row.names(BRCA_met_matrix) %in% crs.reac), ]
+
+```
+
+```{r}
+## converting beta values to m_values
+bval <- BRCA_met_matrix
+## m = log2(beta/1-beta)
+mval <- t(apply(BRCA_met_matrix, 1, function(x) log2(x/(1-x))))
+
+rm(BRCA_met_matrix)
+
+head(bval)
+head(mval)
+```
+
+```{r}
+#______________saving/loading_____________________#
+# save data sets
+saveRDS(mval, file = "3.- mval.RDS", compress = FALSE)
+saveRDS (bval, file = "3.- bval.RDS", compress = FALSE)
+mval <- readRDS("3.- mval.RDS")
+bval <- readRDS("3.- bval.RDS")
+
+
+bval_matrix <- data.matrix(bval, rownames.force = NA)
+mval_matrix <- data.matrix(mval, rownames.force = NA)
+
+```
+
+
+
+##  - 3.3.3.- Quality control. Data exploration - visualization
+
+
+```{r}
+#Row data
+row_matrix <- data.matrix(BRCA_met_matrix, rownames.force = NA)
+hist(row_matrix, col = colors_Gr_Bw, breaks = 50 )
+
+```
+
+```{r}
+
+##b and M values distribution:
+#Noramlized - filt
+bval_matrix <- data.matrix(bval, rownames.force = NA)
+hist(bval_matrix, col = colors_Gr_Bw, breaks = 50 )
+
+```
+
+```{r}
+#Density plot
+library(minfi )
+par(mfrow=c(1,2))
+
+png(file="Plots_results/3.0.- Density_plot_bval_norm.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+densityPlot(bval_matrix,legend = TRUE, main = "BRCA beta-values",sampGroups = BRCA_methylation$sample_type, pal = c("#8C510A", "#35978F"))
+dev.off()
+
+```
+
+
+```{r}
+
+# MDS plots to look at largest sources of variation - SI FUNCIONA
+ggpubr::show_point_shapes()#per veure les formes
+
+par(mfrow=c(1,2))
+#pal <- brewer.pal(8,"Dark2")
+pal <- c("#AB0302", "#108372")
+
+
+png(file="Plots_results/3.0.- PCA_bval_norm_TM_TP.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+plotMDS(bval_matrix, top=5000, 
+        pch = 19, #Forma 
+        gene.selection="common", 
+        col=pal[factor(BRCA_methylation$sample_type)])
+legend("topright", legend=levels(factor(BRCA_methylation$sample_type)), text.col=pal, bg="white", cex=1)
+
+dev.off()
+```
+
+
+```{r}
+#PCA subtype
+
+pal <- c("#DFC27D", "#AB0302", "#108372", "#8C510A","tomato" )
+
+
+png(file="Plots_results/3.0.- PCA_bval_norm_PAM50.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+plotMDS(bval_matrix, top=5000, 
+        pch = 19, #Forma 
+        gene.selection="common", 
+        col=pal[factor(BRCA_methylation$paper_BRCA_Subtype_PAM50 )])
+legend("topright", legend=levels(factor(BRCA_methylation$paper_BRCA_Subtype_PAM50)), text.col=pal, bg="white", cex=1)
+
+dev.off()
+
+
+```
+
+### - DNA methylation mean
+
+```{r}
+
+df <- data.frame(
+  "Sample.mean" = colMeans((bval), na.rm = TRUE),
+  "groups" = BRCA_methylation$sample_type)
+
+png(file="Plots_results/3.0.- PCA_bval_mean_TM_vs_TP.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+
+library(ggpubr)
+ggpubr::ggboxplot(
+  data = df,
+  y = "Sample.mean",
+  x = "groups",
+  color = "groups",
+  add = "jitter",
+  fill = "white",
+  palette = c("#AB0302", "#108372"),
+  ylab = expression(paste("Mean DNA methylation (", beta, "-values)")),
+  xlab = ""
+) + stat_compare_means() 
+
+dev.off()
+
+```
+
+
+
+# 3.4.- Differential methylation analysis
+
+__________________ DIFERENTION MTHYLATION ANALYSIS CpGs _____________
+
+------- Different methylated CpGs (DMC) or Probe-wise differential methylation analysis ------ 
+
+```{r}
+# call clinical data:
+clinical_data=data.frame(colData(BRCA_methylation))
+head(clinical_data)
+```
+
+```{r}
+#The clinical data is saved:
+saveRDS(object = clinical_data,
+        file = "3.- clinical_data_meta.RDS",
+        compress = FALSE)
+
+clinical_data = readRDS(file = "3.- clinical_data_meta.RDS")
+
+```
+
+
+
+```{r}
+#Group of interest:
+group=factor(clinical_data$shortLetterCode)
+table(group)
+group=relevel(group, ref = "TP")
+table(group)
+
+
+#Matrix design
+design=model.matrix(~0+group, data = clinical_data) #group defined before
+head(design)
+
+#Re-name matrix
+colnames(design)<- gsub("group", "", colnames(design)) # group name delate
+rownames(design) <- colnames(bval)
+head(design)
+
+#fit the linear model
+fit <- lmFit(mval_matrix, design)
+
+#CONTRAST MATRIX creation
+contr.matrix <- makeContrasts(
+  TMvsTP = TM-TP,
+  levels= colnames(design)
+)
+contr.matrix
+
+
+#Fit the contrast
+cfit <- contrasts.fit(fit, contr.matrix)
+fit2 <- eBayes(cfit)
+plotSA(fit2)
+
+```
+
+
+```{r}
+#TOPTABLE DMC
+# get the table of results 
+ann450kSub <- ann450k[match(rownames(mval_matrix),ann450k$Name),
+                      c(1:4,11:19,24:ncol(ann450k))]#Aquets són les columnes que interesen afegir. 
+
+
+#as.data.frame(ann450k)
+#All methilated proves
+All_meth <- topTable(fit2, #ANTIGAMENT = DMCs
+                 num=Inf, 
+                 sort.by = "p",
+                 coef=1, #saved as data.frame
+                 #p.value = 0.05,
+                 genelist=ann450kSub)
+
+dim(All_meth) #[1] 333315     29
+
+#Gene column #UCSC_RefGene_Name en alguns casos te escrit varis cops el nom del gen
+All_meth$Gene <-sapply(sapply(strsplit(All_meth$UCSC_RefGene_Name, ";"), unique), function(x) ifelse(length(x)>1, paste(x[1], x[2], sep = "_"), x[1])) 
+
+All_meth$CpgGene <- paste(All_meth$Row.names, All_meth$Gene)
+
+
+#Significant DMCs:
+#Select significat DMCs, hyper and hypomethylated
+library(tidyverse) #colecio de package
+DMCs_sig <- All_meth %>% filter(All_meth$P.Value < 0.05) # Idem calculat anteriorment, 
+dim(DMCs_sig) # [1] 34128    31
+
+saveRDS(DMCs_sig,file = "3.- BRCA_DMG_TM_sig_genes.RDS")
+write.table(DMCs_sig, file="Plots_results/3.- BRCA_DMCs_sig_CpG.csv", sep=",", row.names=T)
+
+```
+
+
+```{r}
+saveRDS(All_meth, file = "3.- All_meth.RDS", compress = FALSE)
+All_meth <- readRDS("All_meth.RDS")
+
+```
+
+```{r}
+# ____________________  UP ______________________________ 
+## HYPER - pvalue
+DMCs_up <- DMCs_sig %>% filter(logFC>0)
+DMCs_up <- DMCs_up[order(DMCs_up$P.Value),]
+
+dim(DMCs_up) # [1] 3326   31
+
+top5pval_up <- DMCs_up[1:5,]
+top5pval_up$name <- gsub( " ", "\n", top5pval_up$UCSC_RefGene_Name)
+
+
+## HYPER - FC
+DMCs_up_FC <- DMCs_sig %>% filter(logFC>0)%>% arrange(desc(logFC))
+dim(DMCs_up_FC) #[1] 3326   31
+
+top5FC_up <- DMCs_up_FC[1:5,]
+top5FC_up$name <- gsub( " ", "\n", top5FC_up$CpgGene)
+
+
+# ______________________________  DOWN _______________________________
+## HYPO - pvalue
+DMCs_down <- DMCs_sig %>% filter(logFC<0)
+DMCs_down <- DMCs_down[order(DMCs_down$P.Value),]
+
+dim(DMCs_down)#[1]  [1] 30802    31
+
+top5pval_down <- DMCs_down[1:5,]
+top5pval_down$name <- gsub( " ", "\n", top5pval_down$CpgGene)
+
+## HYPO - FC
+
+DMCs_down_FC <- DMCs_sig %>% filter(logFC<0)%>% arrange(logFC)
+top5FC_down <- DMCs_down_FC[1:5,]
+top5FC_down$name <- gsub( " ", "\n", top5FC_down$CpgGene)
+
+## COmbinacio
+top10_up <- rbind(top5pval_up, top5FC_up)
+dim(top10_up)
+top10_down <- rbind(top5pval_down, top5FC_down)
+dim(top10_down)
+```
+
+
+
+# - 3.5.- Visualization - CpG
+
+
+VISUALIZATION
+- BoxPlot probes (DMCs)
+
+```{r}
+#Visualization 
+
+
+#OPCIO 1
+# plot the top 10 most significantly differentially methylated CpGs 
+
+par(mfrow=c(2,5))
+png(file="Plots_results/3.1.- Top_10_diff_CpGs_MP.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+sapply(rownames(DMCs_sig)[1:10], function(cpg){
+  plotCpg(bval, cpg=cpg, pheno= clinical_data$shortLetterCode, ylab = "Beta values")
+})
+dev.off()
+```
+
+
+```{r}
+
+#OPCIO 2
+
+
+# plot the top 4 most significantly differentially methylated CpGs 
+png(file="Plots_results/3.1.- top few differentially methylated CpGs.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+par(mfrow=c(2,2))
+sapply(rownames(DMCs_sig)[1:4], function(cpg){
+  plotCpg(bval_matrix, cpg=cpg, pheno=clinical_data$shortLetterCode, ylab = "Beta values")
+})
+
+dev.off()
+```
+
+
+- VOLCANO PLOT
+
+
+```{r}
+
+#-------------------------------- VOLCANO PLOT -------------------------
+
+#OPCIO 1 - IGUAL QUE RNA seq 
+
+#Gene column #UCSC_RefGene_Name en alguns casos te escrit varis cops el nom del gen
+All_meth$Gene <-sapply(sapply(strsplit(All_meth$UCSC_RefGene_Name, ";"), unique), function(x) ifelse(length(x)>1, paste(x[1], x[2], sep = "_"), x[1]))
+
+
+
+png(file="Plots_results/3.1.- Volcano plot DMR log.png",  width =  500 , height = 400 , units = "px" 
+    )
+
+EnhancedVolcano(All_meth,
+  lab = All_meth$Gene, # rownames(DMPs), #dfinit mes endavant Gene
+  x = "logFC",
+  y = "adj.P.Val",
+  pCutoff = 10e-3,
+  FCcutoff = 0.5,
+  xlim = c(-3, 3),
+  ylim = c(0, -log10(10e-12)),
+  pointSize = 1.0,
+  labSize = 4.0,
+  title = '',
+  subtitle = '',
+  caption = 'FC cutoff, 0.5; p-value cutoff, 10e-3',
+  legendPosition = "right",
+  legendLabSize = 10,
+  col = c('grey30', "#35978F", 'gray81', "#8C510A"),
+  colAlpha = 0.5,
+  drawConnectors = FALSE,
+  hline = c(10e-8),
+  widthConnectors = 0.5,
+  max.overlaps = 15)
+
+dev.off()
+```
+
+
+- MANHATTAN PLOT
+
+```{r}
+# https://github.com/YinLiLin/CMplot
+
+library("CMplot")
+?CMplot
+
+#Slecionem columnes interes (nom, chr, pos i p-value)
+DMCs_manhattan<- DMCs_sig[,c(1,2,4,27)] 
+#rownames remove
+rownames(DMCs_manhattan) <- NULL
+#Rearrange colums
+DMCs_manhattan<- DMCs_manhattan[,c(3,1,2,4)]
+#Rename chr
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr1"] <- "1"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr2"] <- "2"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr3"] <- "3"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr4"] <- "4"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr5"] <- "5"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr6"] <- "6"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr7"] <- "7"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr8"] <- "8"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr9"] <- "9"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr10"] <- "10"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr11"] <- "11"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr12"] <- "12"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr13"] <- "13"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr14"] <- "14"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr15"] <- "15"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr16"] <- "16"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr17"] <- "17"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr18"] <- "18"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr19"] <- "19"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr20"] <- "20"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr21"] <- "21"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chr22"] <- "22"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chrX"] <- "X"
+DMCs_manhattan["chr"][DMCs_manhattan["chr"] == "chrY"] <- "Y"
+
+#sort column chr numerically
+DMCs_manhattan <- DMCs_manhattan[order(DMCs_manhattan$chr),] 
+
+DMCs_manhattan
+
+
+png(file="Plots_results/3.2.- Manhattan_plot_DMR.png"#,  width =  500 , height = 400 , units = "px" 
+    )
+
+CMplot(DMCs_manhattan, 
+       plot.type="m", #Rectangular Manhattan Plot, if "c" = Circular 
+       ylim= NULL, # if the ylim is setted, then CMplot will only plot the points among this interval,
+       
+       #Significant level:
+       
+        LOG10= T, #change p-value to log10(p-value)
+       threshold= c(10e-6),#sig level, Coluld be 0 or NULL, defult = 0.01
+       threshold.lty=c(1), #line type. 1 = continuos 2 = discontinous
+        threshold.lwd=c(1),#Threshold line width 
+       threshold.col=c("black"), #line colour
+       
+       #Highlight the point which are significant (thereshold):
+       amplify= F,
+       signal.cex=c(0.8,0.8), #size of sig. points
+       signal.col=c("red","green"), #Color
+       signal.pch=c(20,20), #shape sig. points
+       
+       
+       #Chromosome density on the bottom
+       #chr.den.col=c("darkgreen", "yellow", "red"),
+       
+       #Points Colours/size 
+       cex = 0.8,#size of the points
+       pch = 20, #type of the points
+       band = 2,# space between chromosomes 
+       bin.size=1e6,
+       col = c("#80CDC1","#DFC27D"),#point colour
+       
+       chr.border=TRUE, #Vertical line between chr
+       
+      
+       #Legend, title and size numbers etc
+       cex.axis = 0.5,#Size numbers x axis
+       main = "Manhattan Plot DMCs", #Title
+       main.cex = , #size of the title
+       #ylab = expression(-log[2](italic(p))), 
+       
+       #Output File creation:
+       file.output=F,
+       file="jpg",
+       memo="", #add a character to the output file name
+       dpi=300, #the picture resolution
+       verbose=TRUE,
+       width=14,height=6)
+
+dev.off()
+
+```
+
+```{r}
+#Chr precentage - statistics
+table(DMCs_sig$chr)
+
+df<- DMCs_sig%>%
+  group_by(chr)%>%
+  summarise(n=n())%>%
+  mutate(Perc.= n/sum(n)*100)
+
+df2 <- df[order(df$Perc.,decreasing=TRUE),]
+df2
+
+```
+
+
+
+# - 3.6.- CpGs POSITION 
+
+* - 3.6.1.- RELATION to GENE 
+* - 3.6.2.- RELATION to ISLAND 
+
+
+## 3.6.1.- RELATION to GENE 
+
+---------  (DMC) CpGs POSITION / RELATION to GENE  ----------- 
+
+    - Regulatory (TSS200, TSS1500, 1StExon, 5'UTR)
+    - Body Regions
+    - 3'UTR Regions
+    
+    
+    
+```{r}
+#
+#Variable: UCSC_RefGene_Group - All vs DMCs_Hyper vs DMCs_Hypo
+as.data.frame(table(DMCs_sig$UCSC_RefGene_Group))
+#(c) Percentage of CpGs according to relation to genes in DMPs (Vacc-BSL) and in 450K array (All).  
+
+
+#All CpG - All_meth
+#CpG sig - DMCs_sig
+
+
+#Colour definition:
+pal <- brewer.pal(8,"BrBG") # 
+
+#1.- UCSC Gene Group annotation modification (DMCs group and All CpG as control):
+
+DMCs_up$Gene_Group <- sapply(sapply(strsplit(DMCs_up$UCSC_RefGene_Group, ";"), unique), function(x)x[1])
+DMCs_down$Gene_Group <- sapply(sapply(strsplit(DMCs_down$UCSC_RefGene_Group, ";"), unique), function(x)x[1])
+All_meth$Gene_Group <- sapply(sapply(strsplit(All_meth$UCSC_RefGene_Group, ";"), unique), function(x)x[1])
+
+```
+
+
+```{r}
+
+#2.- Ratio calculation : CpG position / ralation to Gene
+
+## 2.1 .- For DMCs_up:
+
+Relation_DMCs_up <- DMCs_up %>%
+  group_by(Gene_Group) %>%
+  summarise(counts = n())
+Relation_DMCs_up
+
+#Relation_DMCs$x <- rep("Relation to nearest gene", nrow(Relation_DMCs))
+#Relation_DMCs_up$Gene_Group  <- factor(Relation_DMCs$Gene_Group, levels = c("TSS200", "TSS1500", "1stExon", "5'UTR", "3'UTR", "Body"))
+
+png(file="Plots_results/3.3.- CpG position_ralation to Gene_up.png"#,  width =  500 , height = 400 , units = "px" 
+    )
+
+ggplot(Relation_DMCs_up, aes(fill=Gene_Group, y=counts, x = "Relation to nearest gene")) + 
+    geom_bar(position="fill", stat="identity") + 
+  theme_classic()+scale_fill_manual(values = pal)+
+  guides(fill=guide_legend(title="Genomic region"))
+
+dev.off()
+```
+
+```{r}
+## 2.2 .- For DMCs_down:
+
+Relation_DMCs_down <- DMCs_down %>%
+  group_by(Gene_Group) %>%
+  summarise(counts = n())
+Relation_DMCs_down
+
+png(file="Plots_results/3.3.- CpG position_ralation to Gene_down.png"#,  width =  500 , height = 400 , units = "px" 
+    )
+
+ggplot(Relation_DMCs_down, aes(fill=Gene_Group, 
+       y=counts, x = "Relation to nearest gene")) + 
+      geom_bar(position="fill", stat="identity") +
+      theme_classic()+scale_fill_manual(values = pal)+  guides(fill=guide_legend(title="Genomic region"))
+
+dev.off
+```
+
+```{r}
+## 2.3 .- For All_meth:
+
+
+Relation_All_meth <- All_meth %>%
+  group_by(Gene_Group) %>%
+  summarise(counts = n())
+Relation_All_meth
+
+png(file="Plots_results/3.3.- CpG position_ralation to Gene_ALL.png"#,  width =  500 , height = 400 , units = "px" 
+    )
+
+ggplot(Relation_All_meth, aes(fill=Gene_Group, y=counts, x = "Relation to nearest gene")) + 
+    geom_bar(position="fill", stat="identity") + 
+  theme_classic()+scale_fill_manual(values = pal)
+
+dev.off
+```
+
+
+```{r}
+# PLOT ALL TOGETHER
+#3.- Class varaiable Cration: All, Hyper, Hypo
+Relation_All_meth$class <- rep("All", nrow(Relation_All_meth))
+Relation_DMCs_up$class <- rep("Hyper", nrow(Relation_DMCs_up))
+Relation_DMCs_down$class <- rep("Hypo", nrow(Relation_DMCs_down))
+
+#4.- % calculation
+Relation_All_meth$perc <- 100*(Relation_All_meth$counts/sum(Relation_All_meth$counts))
+Relation_DMCs_up$perc <- 100*(Relation_DMCs_up$counts/sum(Relation_DMCs_up$counts))
+Relation_DMCs_down$perc <- 100*(Relation_DMCs_down$counts/sum(Relation_DMCs_down$counts))
+
+#5.- Combine all data frame
+Gene_group_df <- rbind(Relation_All_meth, Relation_DMCs_up, Relation_DMCs_down)
+
+#Change NA to IGR. Intergenic Gene Regions
+Gene_group_df$Gene_Group[is.na(Gene_group_df$Gene_Group)] <- "IGR"
+Gene_group_df
+
+
+
+# 6.- Plot
+
+Gene_group_df$p1 <- with(Gene_group_df, paste(formatC(perc, digits=2
+              , format="fg"),"%",sep=""))
+
+png(file="Plots_results/3.3.- CpG position_ralation to Gene_COMBINATION.png"#,  width =  500 , height = 400 , units = "px" 
+    )
+
+ggplot(Gene_group_df, 
+       aes(fill=Gene_Group, y=perc, x = class)) + 
+    geom_bar(position="fill", stat="identity")+
+  
+  theme(axis.text.x  = element_text(colour = "black", size = 11), 
+  axis.text.y = element_text(colour = "black", size = 11), 
+  legend.text = element_text(size = 10,  colour ="black"), 
+  legend.title = element_text(size = 12), 
+  panel.background = element_blank(), axis.line = element_line(colour = "black", size = 1), 
+  legend.position = "right") +
+  
+  scale_fill_manual(values = pal) + 
+  
+  #% definition:
+  scale_y_continuous(labels = scales:: percent_format(accuracy = 1))+
+  
+  labs(x = "", y = "% of CpG positions / Relative to Gene")+
+  geom_text(aes(label=p1),position = position_fill(vjust = 0.5))
+
+dev.off()
+
+
+#7. Statistics
+library(ggpubr)
+Gene_group_df
+
+p_st <- compare_means(perc ~ class, data = Gene_group_df, 
+              group.by = "Gene_Group", paired = TRUE)
+
+write.table(p_st, file="Plots_results/3.3.- CpG position_ralation to Gene_COMBINATION_statistics.csv", sep=",", row.names=F)
+ 
+```
+
+## 3.6.2.- RELATION to ISLAND 
+---------  (DMC) CpGs POSITION / RELATION to ISLAND  ----------- 
+
+    - CpG Island (CGI)
+    - CpG Island Shores (2kb from CGI)
+    - CpG Island Shelve (4kb from CGI)
+    - Open See Regions
+    
+```{r}
+
+#(d) Percentage of CpGs according to relation to Island in DMPs (Vacc-BSL) and in 450K array (All).
+#Variable: Relation_to_Island -  All vs DMCs_Hyper vs DMCs_Hypo
+
+as.data.frame(table(DMCs_sig$Relation_to_Island))
+#(c) Percentage of CpGs according to relation to genes in DMPs (Vacc-BSL) and in 450K array (All).  
+
+
+#Colour definition:
+pal <- brewer.pal(8,"BrBG") # 
+```
+
+```{r}
+#1.- UCSC Gene Group annotation modification (DMCs group and All CpG as control):
+## No es necessari modificar anotacio
+
+#2.- Ratio calculation : CpG position / ralation to Gene
+
+## 2.1 .- For DMCs_up:
+
+Relation_DMCs_up_island <- DMCs_up %>%
+  group_by(Relation_to_Island) %>%
+  summarise(counts = n())
+Relation_DMCs_up_island
+
+ggplot(Relation_DMCs_up_island, aes( fill=
+Relation_to_Island,y=counts, x = "Hyper")) + 
+    geom_bar(position="fill", stat="identity") + 
+  theme_classic()+scale_fill_manual(values = pal)
+```
+
+```{r}
+## 2.2 .- For DMCs_down:
+
+Relation_DMCs_down_island <- DMCs_down %>%
+  group_by(Relation_to_Island) %>%
+  summarise(counts = n())
+Relation_DMCs_down
+
+ggplot(Relation_DMCs_down_island, aes(fill=
+Relation_to_Island,y=counts, x = "Hypo")) + 
+      geom_bar(position="fill", stat="identity") +
+      theme_classic()+scale_fill_manual(values = pal)
+```
+
+```{r}
+## 2.3 .- For All_meth:
+
+Relation_All_meth_island <- All_meth %>%
+  group_by(Relation_to_Island) %>%
+  summarise(counts = n())
+Relation_All_meth
+
+ggplot(Relation_All_meth_island, aes(fill=Relation_to_Island, y=counts, x = "Relation to nearest gene")) + 
+    geom_bar(position="fill", stat="identity") + 
+  theme_classic()+scale_fill_manual(values = pal)
+```
+
+```{r}
+#COMPINATION ALL
+#3.- Class varaiable Cration: All, Hyper, Hypo
+Relation_All_meth_island$class <- rep("All", nrow(Relation_All_meth_island))
+Relation_DMCs_up_island$class <- rep("Hyper", nrow(Relation_DMCs_up_island))
+Relation_DMCs_down_island$class <- rep("Hypo", nrow(Relation_DMCs_down_island))
+
+#4.- % calculation
+Relation_All_meth_island$perc <- 100*(Relation_All_meth_island$counts/sum(Relation_All_meth_island$counts))
+Relation_DMCs_up_island$perc <- 100*(Relation_DMCs_up_island$counts/sum(Relation_DMCs_up_island$counts))
+Relation_DMCs_down_island$perc <- 100*(Relation_DMCs_down_island$counts/sum(Relation_DMCs_down_island$counts))
+
+#5.- Combine all data frame
+Gene_group_df_island <- rbind(Relation_All_meth_island, Relation_DMCs_down_island, Relation_DMCs_up_island)
+
+
+# 6.- Plot
+
+Gene_group_df_island$p2 <- with(Gene_group_df_island, paste(formatC(perc, digits=2
+              , format="fg"),"%",sep=""))
+  Gene_group_df_island
+  
+  
+png(file="Plots_results/3.3.- CpG position Relation_to_Island COMBINATION.png"#,  width =  500 , height = 400 , units = "px" 
+    )  
+  
+ggplot(Gene_group_df_island, 
+       aes(fill=Relation_to_Island, y=perc, x = class)) + 
+    geom_bar(position="fill", stat="identity")+
+  
+  theme(axis.text.x  = element_text(colour = "black", size = 11), 
+  axis.text.y = element_text(colour = "black", size = 11), 
+  legend.text = element_text(size = 10,  colour ="black"), 
+  legend.title = element_text(size = 12), 
+  panel.background = element_blank(), axis.line = element_line(colour = "black", size = 1), 
+  legend.position = "right") +
+  
+  scale_fill_manual(values = pal) + 
+  
+  #% definition:
+scale_y_continuous(labels = scales:: percent_format(accuracy = 1))+
+labs(x = "", y = "% of CpG positions / Relative to Island")+
+geom_text(aes(label=p2),position = position_fill(vjust = 0.5))
+  
+
+#7 Statistics
+p_st_2 <- compare_means(perc ~ class, data = Gene_group_df_island, 
+              group.by = "Relation_to_Island", paired = TRUE)
+
+write.table(p_st, file="Plots_results/3.3.- CpG position Relation_to_Island COMBINATION_statistics.csv", sep=",", row.names=F)
+
+```

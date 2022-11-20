@@ -1,0 +1,311 @@
+---
+title: "7.- CYtoscape r data preparation"
+author: "Nuria Moragas"
+date: "August 2022"
+---
+
+
+
+```{r}
+
+setwd("./Scrips_R/6.- Enrichment_Analysis")
+```
+
+
+
+# --------------------------------   C5 GO gene sets ------------------------------------
+
+```{r}
+
+#### ----------------------- C5 GO gene sets  ------------------------
+tab.tf_c5_3_omics_up<- readRDS(file = "6.- tab.tf_c5_3_omics_up.rda")
+tab.tf_c5_3_omics_down<- readRDS(file = "6.- tab.tf_c5_3_omics_down.rda")
+
+# ____________________________________________ UP _____________________________________________
+
+#PREPARAR PEL CYTOSCAPE
+tab.tf_c5_3_omics_up$geneID <- gsub("/", ",", tab.tf_c5_3_omics_up$geneID, fixed=TRUE) #Eliminacio . i el que segueix
+
+
+tab.tf_c5_toSave_3_omics_up <- tab.tf_c5_3_omics_up
+rownames(tab.tf_c5_toSave_3_omics_up) <- NULL
+
+tab.tf_c5_toSave_3_omics_up <- tab.tf_c5_toSave_3_omics_up[-9]
+tab.tf_c5_toSave_3_omics_up <- tab.tf_c5_toSave_3_omics_up[-6]
+tab.tf_c5_toSave_3_omics_up <-tab.tf_c5_toSave_3_omics_up[-4]
+tab.tf_c5_toSave_3_omics_up <- tab.tf_c5_toSave_3_omics_up[-3]
+
+#Afegir columna phenotype:
+tab.tf_c5_toSave_3_omics_up$Phenotype <- "+1" #up regulat
+
+#reordenar
+tab.tf_c5_toSave_3_omics_up <- tab.tf_c5_toSave_3_omics_up[, c(1,2, 3, 4, 6,5 )]
+tab.tf_c5_toSave_3_omics_up
+
+#
+tab.tf_c5_toSave_3_omics_up$Phenotype<- as.numeric(as.character(tab.tf_c5_toSave_3_omics_up$Phenotype))
+tab.tf_c5_toSave_3_omics_up
+
+#Guardar pel cytoscape
+  write.table(tab.tf_c5_toSave_3_omics_up, file = "tab.tf_c5_3_omics_up.gem.txt", sep = "\t", quote = FALSE,
+            row.names = F, col.names = TRUE)
+
+
+# ____________________________________________ DOWN _____________________________________________
+
+#PREPARAR PEL CYTOSCAPE
+tab.tf_c5_3_omics_down$geneID <- gsub("/", ",", tab.tf_c5_3_omics_down$geneID, fixed=TRUE) #Eliminacio . i el que segueix
+
+
+tab.tf_c5_toSave_3_omics_down <- tab.tf_c5_3_omics_down
+rownames(tab.tf_c5_toSave_3_omics_down) <- NULL
+
+tab.tf_c5_toSave_3_omics_down <- tab.tf_c5_toSave_3_omics_down[-9]
+tab.tf_c5_toSave_3_omics_down <- tab.tf_c5_toSave_3_omics_down[-6]
+tab.tf_c5_toSave_3_omics_down <-tab.tf_c5_toSave_3_omics_down[-4]
+tab.tf_c5_toSave_3_omics_down <- tab.tf_c5_toSave_3_omics_down[-3]
+
+#Afegir columna phenotype:
+tab.tf_c5_toSave_3_omics_down$Phenotype <- "-1" #up regulat
+
+#reordenar
+tab.tf_c5_toSave_3_omics_down <- tab.tf_c5_toSave_3_omics_down[, c(1,2, 3, 4, 6,5 )]
+tab.tf_c5_toSave_3_omics_down
+
+#
+tab.tf_c5_toSave_3_omics_down$Phenotype<- as.numeric(as.character(tab.tf_c5_toSave_3_omics_down$Phenotype))
+tab.tf_c5_toSave_3_omics_down
+
+#Guardar pel cytoscape
+  write.table(tab.tf_c5_toSave_3_omics_down, file = "tab.tf_c5_3_omics_down.gem.txt", sep = "\t", quote = FALSE,
+            row.names = F, col.names = TRUE)
+
+
+#________________________________________ MERGE ______________________________________________
+  
+  
+
+tab.tf_c5_toSave_3_omics<- bind_rows(tab.tf_c5_toSave_3_omics_down, tab.tf_c5_toSave_3_omics_up)
+ write.table(tab.tf_c5_toSave_3_omics, file = "tab.tf_c5_3_omics.gem.txt", sep = "\t", quote = FALSE,
+            row.names = F, col.names = TRUE)
+ 
+ 
+#_______________________________________  MODIF GMT
+#La segona clumna te una adreça web que s'ha de canviar pel nom del GO
+c5 <- read.table("c5.all.v2022.1.Hs.entrez.gmt", header = FALSE, sep = "\t", fill = TRUE)
+
+c5$V2 <- c5$V1
+
+write.table(c5, file = "c5.all.v2022.1.Hs.entrez_modif.gmt", sep = "\t", quote = FALSE,
+            row.names = F, col.names = F)
+
+ 
+ 
+```
+
+
+
+# --------------------------------   Hallmarks gene sets ------------------------------------
+
+```{r}
+
+#### ----------------------- H: hallmark gene sets  ------------------------
+tab.hall_3_omics_up<- readRDS(file = "6.- tab.hall_3_omics_up.rda")
+tab.hall_3_omics_down<- readRDS(file = "6.- tab.hall_3_omics_down.rda")
+
+
+
+# ____________________________________________ UP _____________________________________________
+
+#PREPARAR PEL CYTOSCAPE
+tab.hall_3_omics_up$geneID <- gsub("/", ",", tab.hall_3_omics_up$geneID, fixed=TRUE) #Eliminacio . i el que segueix
+
+
+tab.hall_toSave_3_omics_up <- tab.hall_3_omics_up
+rownames(tab.hall_toSave_3_omics_up) <- NULL
+
+tab.hall_toSave_3_omics_up <- tab.hall_toSave_3_omics_up[-9]
+tab.hall_toSave_3_omics_up <- tab.hall_toSave_3_omics_up[-6]
+tab.hall_toSave_3_omics_up <-tab.hall_toSave_3_omics_up[-4]
+tab.hall_toSave_3_omics_up <- tab.hall_toSave_3_omics_up[-3]
+
+#Afegir columna phenotype:
+tab.hall_toSave_3_omics_up$Phenotype <- "+1" #up regulat
+
+#reordenar
+tab.hall_toSave_3_omics_up <- tab.hall_toSave_3_omics_up[, c(1,2, 3, 4, 6,5 )]
+tab.hall_toSave_3_omics_up
+
+#
+tab.hall_toSave_3_omics_up$Phenotype<- as.numeric(as.character(tab.hall_toSave_3_omics_up$Phenotype))
+tab.hall_toSave_3_omics_up
+
+
+#Guardar pel cytoscape
+  write.table(tab.hall_toSave_3_omics_up, file = "tab.tf_hall_3_omics_up.gem.txt", sep = "\t", quote = FALSE,
+            row.names = F, col.names = TRUE)
+
+
+# ____________________________________________ DOWN _____________________________________________
+
+#PREPARAR PEL CYTOSCAPE
+tab.hall_3_omics_down$geneID <- gsub("/", ",", tab.hall_3_omics_down$geneID, fixed=TRUE) #Eliminacio . i el que segueix
+
+
+tab.tf_hall_toSave_3_omics_down <- tab.hall_3_omics_down
+rownames(tab.tf_hall_toSave_3_omics_down) <- NULL
+
+tab.tf_hall_toSave_3_omics_down <- tab.tf_hall_toSave_3_omics_down[-9]
+tab.tf_hall_toSave_3_omics_down <- tab.tf_hall_toSave_3_omics_down[-6]
+tab.tf_hall_toSave_3_omics_down <-tab.tf_hall_toSave_3_omics_down[-4]
+tab.tf_hall_toSave_3_omics_down <- tab.tf_hall_toSave_3_omics_down[-3]
+
+#Afegir columna phenotype:
+tab.tf_hall_toSave_3_omics_down$Phenotype <- "-1" #up regulat
+
+#reordenar
+tab.tf_hall_toSave_3_omics_down <- tab.tf_hall_toSave_3_omics_down[, c(1,2, 3, 4, 6,5 )]
+tab.tf_hall_toSave_3_omics_down
+
+#
+tab.tf_hall_toSave_3_omics_down$Phenotype<- as.numeric(as.character(tab.tf_hall_toSave_3_omics_down$Phenotype))
+tab.tf_hall_toSave_3_omics_down
+
+#Guardar pel cytoscape
+  write.table(tab.tf_hall_toSave_3_omics_down, file = "tab.tf_hall_3_omics_down.gem.txt", sep = "\t", quote = FALSE,
+            row.names = F, col.names = TRUE)
+
+
+#________________________________________ MERGE ______________________________________________
+  
+  
+
+tab.tf_hall_toSave_3_omics<- bind_rows(tab.tf_hall_toSave_3_omics_down, tab.hall_toSave_3_omics_up)
+ write.table(tab.tf_hall_toSave_3_omics, file = "tab.tf_hall_3_omics.gem.txt", sep = "\t", quote = FALSE,
+            row.names = F, col.names = TRUE)
+ 
+ 
+#_______________________________________  MODIF GMT
+#La segona clumna te una adreça web que s'ha de canviar pel nom del GO
+hall <- read.table("h.all.v2022.1.Hs.entrez.gmt", header = FALSE, sep = "\t", fill = TRUE)
+
+hall$V2 <- hall$V1
+
+write.table(hall, file = "h.all.v2022.1.Hs.entrez_modif.gmt", sep = "\t", quote = FALSE,
+            row.names = F, col.names = F)
+
+ 
+ 
+```
+
+
+# --------------------------------   C7 inmunologic signatures ------------------------------------
+
+```{r}
+
+#### ----------------------- C7 inmunologic signatures  ------------------------
+
+tab.c7_3_omics_up<- readRDS(file = "6.- tab.c7_3_omics_up.rda")
+tab.c7_3_omics_down<- readRDS(file = "6.- tab.c7_3_omics_down.rda")
+
+
+
+
+# ____________________________________________ UP _____________________________________________
+
+#PREPARAR PEL CYTOSCAPE
+tab.c7_3_omics_up$geneID <- gsub("/", ",", tab.c7_3_omics_up$geneID, fixed=TRUE) #Eliminacio . i el que segueix
+
+
+tab._c7_toSave_3_omics_up <- tab.c7_3_omics_up
+rownames(tab._c7_toSave_3_omics_up) <- NULL
+
+tab._c7_toSave_3_omics_up <- tab._c7_toSave_3_omics_up[-9]
+tab._c7_toSave_3_omics_up <- tab._c7_toSave_3_omics_up[-6]
+tab._c7_toSave_3_omics_up <- tab._c7_toSave_3_omics_up[-4]
+tab._c7_toSave_3_omics_up <- tab._c7_toSave_3_omics_up[-3]
+
+#Afegir columna phenotype:
+tab._c7_toSave_3_omics_up$Phenotype <- "+1" #up regulat
+
+#reordenar
+tab._c7_toSave_3_omics_up <- tab._c7_toSave_3_omics_up[, c(1,2, 3, 4, 6,5 )]
+tab._c7_toSave_3_omics_up
+
+#
+tab._c7_toSave_3_omics_up$Phenotype<- as.numeric(as.character(tab._c7_toSave_3_omics_up$Phenotype))
+tab._c7_toSave_3_omics_up
+
+
+#Guardar pel cytoscape
+  write.table(tab._c7_toSave_3_omics_up, file = "tab.tf_c7_3_omics_up.gem.txt", sep = "\t", quote = FALSE,
+            row.names = F, col.names = TRUE)
+
+
+# ____________________________________________ DOWN _____________________________________________
+
+#PREPARAR PEL CYTOSCAPE
+tab.c7_3_omics_down$geneID <- gsub("/", ",", tab.c7_3_omics_down$geneID, fixed=TRUE) #Eliminacio . i el que segueix
+
+
+tab.tf_c7_toSave_3_omics_down <- tab.c7_3_omics_down
+rownames(tab.tf_c7_toSave_3_omics_down) <- NULL
+
+tab.tf_c7_toSave_3_omics_down <- tab.tf_c7_toSave_3_omics_down[-9]
+tab.tf_c7_toSave_3_omics_down <- tab.tf_c7_toSave_3_omics_down[-6]
+tab.tf_c7_toSave_3_omics_down <-tab.tf_c7_toSave_3_omics_down[-4]
+tab.tf_c7_toSave_3_omics_down <- tab.tf_c7_toSave_3_omics_down[-3]
+
+#Afegir columna phenotype:
+tab.tf_c7_toSave_3_omics_down$Phenotype <- "-1" #up regulat
+
+#reordenar
+tab.tf_c7_toSave_3_omics_down <- tab.tf_c7_toSave_3_omics_down[, c(1,2, 3, 4, 6,5 )]
+tab.tf_c7_toSave_3_omics_down
+
+#
+tab.tf_c7_toSave_3_omics_down$Phenotype<- as.numeric(as.character(tab.tf_c7_toSave_3_omics_down$Phenotype))
+tab.tf_c7_toSave_3_omics_down
+
+#Guardar pel cytoscape
+  write.table(tab.tf_c7_toSave_3_omics_down, file = "tab.tf_c7_3_omics_down.gem.txt", sep = "\t", quote = FALSE,
+            row.names = F, col.names = TRUE)
+
+
+#________________________________________ MERGE ______________________________________________
+  
+  
+
+tab.tf_c7_toSave_3_omics<- bind_rows(tab.tf_c7_toSave_3_omics_down, tab._c7_toSave_3_omics_up)
+ write.table(tab.tf_c7_toSave_3_omics, file = "tab.tf_c7_3_omics.gem.txt", sep = "\t", quote = FALSE,
+            row.names = F, col.names = TRUE)
+ 
+ 
+#_______________________________________  MODIF GMT
+#La segona clumna te una adreça web que s'ha de canviar pel nom del GO
+c7 <- read.table("c7.all.v2022.1.Hs.entrez.gmt", header = FALSE, sep = "\t", fill = TRUE)
+
+c7$V2 <- c7$V1
+
+write.table(c7, file = "c7.all.v2022.1.Hs.entrez_modif.gmt", sep = "\t", quote = FALSE,
+            row.names = F, col.names = F)
+
+ 
+ 
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+#
+
+

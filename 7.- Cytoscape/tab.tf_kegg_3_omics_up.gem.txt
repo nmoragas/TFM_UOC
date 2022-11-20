@@ -1,0 +1,5 @@
+ID	Description	pvalue	qvalue	Phenotype	geneID
+hsa04130	SNARE interactions in vesicular transport	0.0160229829367493	0.0673292788474972	1	6810
+hsa04962	Vasopressin-regulated water reabsorption	0.0213209383017074	0.0673292788474972	1	6810
+hsa04061	Viral protein interaction with cytokine and cytokine receptor	0.0479614253376045	0.0716267676168657	1	6366
+hsa04064	NF-kappa B signaling pathway	0.0498432726204753	0.0716267676168657	1	6366

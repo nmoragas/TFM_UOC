@@ -1,0 +1,1475 @@
+---
+title: "5.- TCGA-BRCA_3-omics integration"
+author: "Nuria Moragas"
+date: "August 2022"
+output:
+  html_document:
+
+---
+
+
+#INDEX
+
+  * 5.1.- Work environment preparation
+  
+  * 5.2.- Conceptual Integration
+         
+          
+  # ---------------------------------------------        
+  
+# 5.1 -Work environment preparation
+
+This part include:
+  - 5.1.1 - Directory Definition
+  - 5.1.2 - Library Call
+  - 5.1.3 - Color Palette
+  - 5.1.4 - 3-Omics importation
+  
+  
+  
+
+## 5.1.1 - Directory Definition
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, cache = TRUE)
+```
+
+```{r, echo=TRUE, message=FALSE,warning=FALSE, include=TRUE}
+
+#___________________Directori definition____________________#
+
+setwd("./Scrips_R")
+
+```
+
+## 5.1.2 - Library Call:
+
+```{r message=FALSE, warning=FALSE}
+#_________________________Packages_______________________#
+
+#Load packages
+#TCGA
+
+library(dplyr)
+library(VennDiagram)
+
+library(RColorBrewer)
+library(ComplexHeatmap)
+
+library(ggvenn)
+library(ggrepel)
+
+
+```
+
+## 5.1.3 - Color Palette:
+
+```{r}
+ #...................................COLORS........................
+
+colors_Gr_Bw <- c( "#35978F", "#80CDC1", "#C7EAE5", "#FFFFFF" , "#F6E8C3", "#DFC27D", "#BF812D" ,"#8C510A")
+```
+
+
+\doublespacing
+
+## 5.1.4 - 3-Omics importation
+
+**WEB BASE:**
+
+
+### CNV load
+```{r}
+
+
+## CNV
+
+load(file = "4.- BRCA_CNV_TM_AmpDel_genes_dp.rda") #AmpDel_genes
+dim(AmpDel_genes_dp)#[1] 2221    6
+
+CNV_vector<- AmpDel_genes_dp$GeneSymbol
+length(CNV_vector)
+
+write(CNV_vector, "5.- CNV_vector.txt")
+
+```
+
+
+
+### DEG
+
+```{r , echo=TRUE, message=FALSE,warning=FALSE, include=TRUE}
+DEG_results <- read.csv("2.- DEG_Top_genes_TPvsTM.csv", header=TRUE)
+dim(DEG_results)#[1] 1689   17
+DEG_vector <-DEG_results$gene_name
+length(DEG_vector)
+write(DEG_vector, "5.- DEG_vector.txt")
+
+```
+
+
+### DMG
+
+
+
+```{r , echo=TRUE, message=FALSE,warning=FALSE, include=TRUE}
+
+DMCs_sig <- readRDS("3.- BRCA_DMG_TM_sig_genes.RDS")
+dim(DMCs_sig)#[1] 34128    31
+
+
+#Dalate repited genes:
+
+#DMCs_sig_dp<- DMCs_sig[!duplicated(DMCs_sig$Gene), ]
+#dim(DMCs_sig_dp) #[1] 8400   31   
+
+#create and save a vector
+DMG_vector <-DMCs_sig$Gene
+write(DMG_vector, "5.- DMG_vector.txt")
+
+```
+
+
+
+
+
+# 5.2.- Conceptual Integration
+
+  - 5.2.1.- Venn Diagram 3-omics
+  - 5.2.2.- Integration study
+  - 
+
+
+## 5.2.1.- Venn Diagram 3-omics
+
+```{r , echo=TRUE, message=FALSE,warning=FALSE, include=TRUE}
+
+# Vector list
+venn_inter <- list(CNV = CNV_vector, DEG = DEG_vector, DMG = DMG_vector)
+venn_inter
+
+#Venn diagram
+png(file="Plots_results/5.- Venn_Diagram_3_omics.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+
+ggvenn(venn_inter, 
+       fill_color = c("#DFC27D", "#35978F", "#868686FF"),
+       stroke_size = 0.5, #contorn esferes
+       set_name_size = 5,#mida titols
+       text_size = 3,
+       show_percentage = T) 
+
+dev.off()
+
+#Genes
+intersecCNV_DEG <- intersect(CNV_vector, DEG_vector)
+saveRDS(intersecCNV_DEG, file = "5.-intersecCNV_DEG.rda")
+intersecCNV_DMG <-intersect(CNV_vector, DMG_vector)
+saveRDS(intersecCNV_DMG, file = "5.-intersecCNV_DMG.rda")
+intersecDEG_DMG <-intersect(DEG_vector, DMG_vector)
+saveRDS(intersecDEG_DMG, file = "5.-intersecDEG_DMG.rda")
+
+gene_3_omics <- intersect(intersect(CNV_vector,DEG_vector),DMG_vector)
+
+gene_3_omics <- c(gene_3_omics)
+length(gene_3_omics)
+gene_3_omics
+
+#[1] "ADAMTSL1" "DDX58"    "CCL21"    "CCNA1"    "SLC25A15" "COG3"     "RCBTB1"   "THSD1" # [9] "LRFN5"    "TMEM229B" "NEK9"     "ANGEL1"   "HS3ST2"   "CLN3"     "ATXN2L"   "MAZ"
+#[17] "PRRT2"    "TBX6"     "STX4"     "NETO2"    "SALL1"    "IRX3"     "IRX6"     "MMP2"
+```
+
+```{r}
+#Create a top 24 gene table with all the RNA, CpG and CNV information. 
+
+## A.- DEG tables
+DEG_3_inter_INFO <-DEG_results[DEG_results$gene_name %in% gene_3_omics,] 
+dim(DEG_3_inter_INFO) #24 17
+DEG_3_inter_INFO <- as.data.frame(DEG_3_inter_INFO)
+DEG_3_inter_INFO
+
+DEG_3_inter_INFO[1:5]<- NULL
+DEG_3_inter_INFO[4:6]<- NULL
+DEG_3_inter_INFO[5:6]<- NULL
+DEG_3_inter_INFO[7]<- NULL
+
+DEG_3_inter_INFO <- DEG_3_inter_INFO[,c(3,1,2,4,5,6)]
+DEG_3_inter_INFO$Gene <- DEG_3_inter_INFO$gene_name
+DEG_3_inter_INFO$gene_name<- NULL
+DEG_3_inter_INFO
+```
+
+```{r}
+
+## B.- DMG tables
+DMG_3_inter_INFO <- DMCs_sig_dp[DMCs_sig_dp$Gene %in% gene_3_omics,] 
+dim(DMG_3_inter_INFO) #[1] [1] 73 31 hi ha mes d'un CpG per gen
+DMG_3_inter_INFO <- as.data.frame(DMG_3_inter_INFO)
+
+
+rownames(DMG_3_inter_INFO )<- NULL
+DMG_3_inter_INFO[2:3]<-NULL 
+DMG_3_inter_INFO[3:10]<-NULL
+DMG_3_inter_INFO[4:5]<-NULL
+DMG_3_inter_INFO[5:11]<-NULL
+DMG_3_inter_INFO[6:7]<-NULL
+DMG_3_inter_INFO[8]<- NULL
+DMG_3_inter_INFO[9]<-NULL
+
+
+#DMG_3_inter_INFO <- DMG_3_inter_INFO[,c(8, 2,1,3,4,5,6,7)]
+#rownames(DMG_3_inter_INFO) <- DMG_3_inter_INFO$Gene
+#DMG_3_inter_INFO$Gene<- NULL
+#non-unique values when setting 'row.names': ‘ADAMTSL1’, ‘ATXN2L’, ‘CCNA1’, ‘HS3ST2’, ‘IRX6’, ‘LRFN5’, ‘MAZ’, ‘MMP2’, ‘NETO2’, ‘SALL1’, ‘SLC25A15’, ‘STX4’, ‘THSD1’, ‘TMEM229B’ 
+
+DMG_3_inter_INFO$Gene_Group <- sapply(sapply(strsplit(DMG_3_inter_INFO$UCSC_RefGene_Group, ";"), unique), function(x)x[1])
+DMG_3_inter_INFO$UCSC_RefGene_Group<- NULL
+DMG_3_inter_INFO <- DMG_3_inter_INFO[,c(7, 1, 2,3,8,4,5,6)]
+DMG_3_inter_INFO
+```
+
+```{r}
+
+## C.- CNV tables
+CNV_3_inter_INFO <- AmpDel_genes_dp[AmpDel_genes_dp$GeneSymbol %in% gene_3_omics,] 
+dim(CNV_3_inter_INFO) #[1] 24  6
+
+CNV_3_inter_INFO <- as.data.frame(CNV_3_inter_INFO)
+CNV_3_inter_INFO 
+
+CNV_3_inter_INFO[2]<-NULL 
+CNV_3_inter_INFO[4]<-NULL 
+CNV_3_inter_INFO <- CNV_3_inter_INFO[,c(1,2,4,3)] 
+CNV_3_inter_INFO$Gene <- CNV_3_inter_INFO$GeneSymbol
+CNV_3_inter_INFO$GeneSymbol <- NULL
+CNV_3_inter_INFO
+
+```
+
+```{r}
+#Merge 3 info df
+#CNV_3_inter_INFO, DEG_3_inter_INFO, DMG_3_inter_INFO
+
+table_3_omics_INFO <- merge(DEG_3_inter_INFO, DMG_3_inter_INFO, by="Gene", all=TRUE)
+#rownames(table_3_omics_INFO) <- table_3_omics_INFO$Gene
+#table_3_omics_INFO$Row.names<- NULL
+
+table_3_omics_INFO <- merge(table_3_omics_INFO, CNV_3_inter_INFO, by="Gene", all=TRUE)
+#rownames(table_3_omics_INFO) <- table_3_omics_INFO$Row.names
+#table_3_omics_INFO$Row.names<- NULL
+table_3_omics_INFO
+
+
+#Add "Gene_expression" variable
+table_3_omics_INFO$Gene_expression <- ifelse(table_3_omics_INFO$logFC.x > 0, 'Up','Down')
+
+##DNA methylation:
+table_3_omics_INFO$DNA_Methylation <- ifelse(table_3_omics_INFO$logFC.y > 0, 'Hyper','Hypo')
+
+
+saveRDS(table_3_omics_INFO, file = "5.- Taula_3_omics_INFO_CpG.rda")
+write.csv(table_3_omics_INFO,"Plots_results/5.- Taula_3_omics_INFO_CpG.csv", row.names = T)
+
+
+table_3_omics_INFO_dp <- table_3_omics_INFO
+table_3_omics_INFO_dp
+
+
+
+
+
+```
+
+ ############# PREPARACIO TFM FINS AQUI ####################
+ 
+## 5.2.2.- Integration study
+
+```{r}
+##Estudi eliminant gens -Cpg repetits
+
+table_3_omics_INFO<- table_3_omics_INFO_dp[!duplicated(table_3_omics_INFO_dp$Gene), ]
+dim(table_3_omics_INFO)
+##Gene_expresion:
+
+table_3_omics_INFO%>%
+  group_by(Gene_expression)%>%
+  summarise(n=n())%>%
+  mutate(Perc.= n/sum(n)*100)
+
+#Gene_expression       n Perc.
+#1 Down               11  45.8
+#2 Up                 13  54.2
+
+table(table_3_omics_INFO$Gene_expression, table_3_omics_INFO$DNA_Methylation)
+#          Hyper Hypo
+#  Down     0   11
+#  Up       3   10
+
+
+
+table_3_omics_INFO %>%
+  group_by(DNA_Methylation) %>%
+  summarise(n=n()) %>%
+  mutate(Perc. =n/sum(n)*100)
+
+# DNA_Methylation      n  Perc.
+#1 Hyper               3   12.5
+#2 Hypo               21   87.5
+
+
+##Aberration:
+table_3_omics_INFO %>%
+  group_by(Aberration) %>%
+  summarise(n=n()) %>%
+  mutate(Perc. =n/sum(n)*100)
+
+#  Aberration     n Perc.
+#1 Amp           15  62.5
+#2 Del            9  37.5
+
+table(table_3_omics_INFO$Gene_expression, table_3_omics_INFO$Aberration)
+#         Amp Del
+#  Down   8   3
+#  Up     7   6
+
+
+table(table_3_omics_INFO$Aberration,table_3_omics_INFO$DNA_Methylation)
+#         Hyper Hypo
+#  Amp     2   13
+#  Del     1    8
+```
+
+```{r}
+#Methylation study
+pal <- brewer.pal(8,"BrBG") 
+
+## Relation to genomic region
+table_3_omics_INFO <- table_3_omics_INFO_dp
+
+table_3_omics_INFO_hypo <- table_3_omics_INFO[table_3_omics_INFO$DNA_Methylation == "Hypo", ]
+table_3_omics_INFO_hyper <- table_3_omics_INFO[table_3_omics_INFO$DNA_Methylation == "Hyper", ]
+
+#Hypo
+Relation_DMCs_hypo <- table_3_omics_INFO_hypo %>%
+  group_by(Gene_Group) %>%
+  summarise(counts = n())
+
+ggplot(Relation_DMCs_hypo, aes(fill=Gene_Group, y=counts, x = "Relation to nearest gene")) + 
+    geom_bar(position="fill", stat="identity") + 
+  theme_classic()+scale_fill_manual(values = pal)+
+  guides(fill=guide_legend(title="Genomic region"))
+
+
+#Hyper
+Relation_DMCs_hyper <- table_3_omics_INFO_hyper %>%
+  group_by(Gene_Group) %>%
+  summarise(counts = n())
+
+ggplot(Relation_DMCs_hyper, aes(fill=Gene_Group, y=counts, x = "Relation to nearest gene")) + 
+    geom_bar(position="fill", stat="identity") + 
+  theme_classic()+scale_fill_manual(values = pal)+
+  guides(fill=guide_legend(title="Genomic region"))
+
+
+
+#TOT
+# PLOT ALL TOGETHER
+#3.- Class varaiable Cration: All, Hyper, Hypo
+
+Relation_DMCs_hyper$class <- rep("Hyper", nrow(Relation_DMCs_hyper))
+Relation_DMCs_hypo$class <- rep("Hypo", nrow(Relation_DMCs_hypo))
+
+#4.- % calculation
+
+Relation_DMCs_hyper$perc <- 100*(Relation_DMCs_hyper$counts/sum(Relation_DMCs_hyper$counts))
+Relation_DMCs_hypo$perc <- 100*(Relation_DMCs_hypo$counts/sum(Relation_DMCs_hypo$counts))
+
+#5.- Combine all data frame
+Gene_group_df <- rbind(Relation_DMCs_hyper, Relation_DMCs_hypo)
+
+#Change NA to IGR. Intergenic Gene Regions
+Gene_group_df$Gene_Group[is.na(Gene_group_df$Gene_Group)] <- "IGR"
+Gene_group_df
+
+
+
+# 6.- Plot
+
+Gene_group_df$p1 <- with(Gene_group_df, paste(formatC(perc, digits=2
+              , format="fg"),"%",sep=""))
+
+png(file="Plots_results/5.1.- Integration_CpG_ position_ralation to Gene_TOT.png"#,  width =  500 , height = 400 , units = "px" 
+    )
+
+ggplot(Gene_group_df, 
+       aes(fill=Gene_Group, y=perc, x = class)) + 
+    geom_bar(position="fill", stat="identity")+
+  
+  theme(axis.text.x  = element_text(colour = "black", size = 11), 
+  axis.text.y = element_text(colour = "black", size = 11), 
+  legend.text = element_text(size = 10,  colour ="black"), 
+  legend.title = element_text(size = 12), 
+  panel.background = element_blank(), axis.line = element_line(colour = "black", size = 1), 
+  legend.position = "right") +
+  
+  scale_fill_manual(values = pal) + 
+  
+  #% definition:
+  scale_y_continuous(labels = scales:: percent_format(accuracy = 1))+
+  
+  labs(x = "", y = "% of CpG positions / Relative to Gene")+
+  geom_text(aes(label=p1),position = position_fill(vjust = 0.5))
+
+dev.off()
+
+```
+
+```{r}
+#Methylation study
+pal <- brewer.pal(8,"BrBG") 
+
+
+#Hypo
+Relation_DMCs_hypo <- table_3_omics_INFO_hypo %>%
+  group_by(Relation_to_Island) %>%
+  summarise(counts = n())
+
+ggplot(Relation_DMCs_hypo, aes(fill=Relation_to_Island, y=counts, x = "Relation to nearest gene")) + 
+    geom_bar(position="fill", stat="identity") + 
+  theme_classic()+scale_fill_manual(values = pal)+
+  guides(fill=guide_legend(title="Genomic region"))
+
+
+#Hyper
+Relation_DMCs_hyper <- table_3_omics_INFO_hyper %>%
+  group_by(Relation_to_Island) %>%
+  summarise(counts = n())
+
+ggplot(Relation_DMCs_hyper, aes(fill=Relation_to_Island, y=counts, x = "Relation to nearest gene")) + 
+    geom_bar(position="fill", stat="identity") + 
+  theme_classic()+scale_fill_manual(values = pal)+
+  guides(fill=guide_legend(title="Genomic region"))
+
+
+
+#TOT
+# PLOT ALL TOGETHER
+#3.- Class varaiable Cration: All, Hyper, Hypo
+
+Relation_DMCs_hyper$class <- rep("Hyper", nrow(Relation_DMCs_hyper))
+Relation_DMCs_hypo$class <- rep("Hypo", nrow(Relation_DMCs_hypo))
+
+#4.- % calculation
+
+Relation_DMCs_hyper$perc <- 100*(Relation_DMCs_hyper$counts/sum(Relation_DMCs_hyper$counts))
+Relation_DMCs_hypo$perc <- 100*(Relation_DMCs_hypo$counts/sum(Relation_DMCs_hypo$counts))
+
+#5.- Combine all data frame
+Gene_group_df <- rbind(Relation_DMCs_hyper, Relation_DMCs_hypo)
+
+#Change NA to IGR. Intergenic Gene Regions
+Gene_group_df$Relation_to_Island[is.na(Gene_group_df$Relation_to_Island)] <- "IGR"
+Gene_group_df
+
+
+
+# 6.- Plot
+
+Gene_group_df$p1 <- with(Gene_group_df, paste(formatC(perc, digits=2
+              , format="fg"),"%",sep=""))
+
+png(file="Plots_results/5.1.- Integration_CpG_Relation_to_Island_TOT.png"#,  width =  500 , height = 400 , units = "px" 
+    )
+
+ggplot(Gene_group_df, 
+       aes(fill=Relation_to_Island, y=perc, x = class)) + 
+    geom_bar(position="fill", stat="identity")+
+  
+  theme(axis.text.x  = element_text(colour = "black", size = 11), 
+  axis.text.y = element_text(colour = "black", size = 11), 
+  legend.text = element_text(size = 10,  colour ="black"), 
+  legend.title = element_text(size = 12), 
+  panel.background = element_blank(), axis.line = element_line(colour = "black", size = 1), 
+  legend.position = "right") +
+  
+  scale_fill_manual(values = pal) + 
+  
+  #% definition:
+  scale_y_continuous(labels = scales:: percent_format(accuracy = 1))+
+  
+  labs(x = "", y = "% of CpG positions / Relative to Gene")+
+  geom_text(aes(label=p1),position = position_fill(vjust = 0.5))
+
+dev.off()
+
+```
+
+
+#_____________________________PROVA 1________________________________#
+
+### CORRELATION DEG -DMR
+
+#### INDIVIDUAL
+```{r}
+##_____________________ DEG data ______________________
+
+### LOad data:
+
+clinicalExp <- readRDS(file = "2.- clinical_data_rna.rda")
+clinicalExp <- data.frame(clinicalExp)
+dim(clinicalExp)# [1] 536  85
+
+
+de_genes <- readRDS(file = "2.- all_gene_p.rda")
+de_genes
+de_genes <- de_genes[,-(1:6)]
+de_genes <- de_genes[,-(2:4)]
+
+### ordering DEGs:
+de_genes<-de_genes[with(de_genes, order(abs(logFC), adj.P.Val, decreasing = TRUE)), ]
+
+
+
+### voomObj is normalized expression values on the log2 scale
+voomobj <- readRDS(file = "2.- v.rda")
+dim(voomobj)
+norm_count <- data.frame(voomobj)
+
+
+norm_count <- norm_count[,-(1:10)]#Elimiacio columnes que no serveixen
+norm_count
+dim(norm_count)#[1] 18126   536
+
+norm_count <- t(apply(norm_count,1, function(x){2^x}))
+colnames(norm_count) <- chartr(".", "-", colnames(norm_count))
+dim(norm_count) #[1]18126   536
+
+```
+
+```{r}
+
+##_____________________ Methilation data ______________________
+
+
+#     1.-   get the 450k annotation data (nº probes related to promoters)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+ann450k <- getAnnotation(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+ann450k
+
+## finding probes in promoter of genes
+table(data.frame(ann450k)$Regulatory_Feature_Group) ## to find regulatory features of probes
+
+## selecting a subset of probes (only number of probe) associated with promoted
+promoter_probe <- rownames(data.frame(ann450k))[data.frame(ann450k)$Regulatory_Feature_Group %in% c("Promoter_Associated", "Promoter_Associated_Cell_type_specific")]
+
+
+
+#    2.-   Clinical data: 2 vectors with barcodes of study groups (TM - TP)
+
+## Call clinical data
+##clinical_data=data.frame(colData(BRCA_met_sub_M0))
+clinical_data_met = readRDS(file = "3.- clinical_data_meta.RDS")
+
+## primary tumor - metastatic
+table(clinical_data_met$sample_type)
+## a  vector is created with the barcode of the patients according to the groups under study
+TP_id <- clinical_data_met$barcode[clinical_data_met$sample_type == "Primary Tumor"]
+TM_id <- clinical_data_met$barcode[clinical_data_met$sample_type == "Metastatic"]
+ 
+
+
+# 3.-   find genes with significantly different methylation status (UP en promotors)  
+
+
+##Data frame cration with the TP - TM bvalues.
+##load bval
+b_val <- readRDS("3.- bval.RDS")
+
+## Data frame creation
+d_bet <- data.frame(Primary_Tumor = rowMeans(b_val[, TP_id]),
+                     Metastatic = rowMeans(b_val[, TM_id]))
+
+
+## Add column (delta) with the absolute value of (TP bval - TM bval)
+d_bet$delta <- abs(d_bet$Primary_Tumor - d_bet$Metastatic)
+
+## probes Vector creation of those with deltabeta > 0.2
+db_probe <- rownames(d_bet)[d_bet$delta > 0.2] # those with deltabeta > 0.2 (hypermethylated?)
+
+## only those that are only related to promoters are saved
+db_probe <- db_probe %in% promoter_probe # those resided in promoter
+
+## Data frame creation of those genes flanked to promote probe
+db_genes <- data.frame(ann450k)[rownames(data.frame(ann450k)) %in% db_probe, ]
+
+## keep this columns "Name","UCSC_RefGene_Name"
+db_genes <- db_genes[, c("Name","UCSC_RefGene_Name")]
+db_genes <- tidyr::separate_rows(db_genes, Name, UCSC_RefGene_Name) # extending collapsed cells
+db_genes$comb <- paste(db_genes$Name,db_genes$UCSC_RefGene_Name) # remove duplicates
+db_genes <- db_genes[!duplicated(db_genes$comb), ]
+db_genes <- db_genes[, -3]
+
+```
+
+
+
+```{r}
+# ________________    doing correlation analysis ___________________
+
+# polishing matrices to have only high grade samples
+cis_bval_mat <- b_val[, TM_id]
+cis_exp_mat <- norm_count[, rownames(clinicalExp)[clinicalExp$sample_type == "Metastatic"]]
+
+#making patient name similar
+colnames(cis_bval_mat) <- substr(colnames(cis_bval_mat),1,19)
+colnames(cis_exp_mat) <- substr(colnames(cis_exp_mat),1,19)
+cis_exp_mat <- cis_exp_mat[, colnames(cis_bval_mat)]
+
+
+#editing expression matrix rowname
+df_rownames <- data.frame(name = row.names(cis_exp_mat)) # keeping rownames as a temporary data frame
+
+df_rownames <- data.frame(do.call('rbind', strsplit(as.character(df_rownames$name),'|',fixed=TRUE))) # this do magic like "text to column" in Excel!
+df_rownames
+row_Name <- df_rownames$do.call..rbind...strsplit.as.character.df_rownames.name........
+rowName
+
+# find duplicates in rowName, if any
+table(duplicated(row_Name))
+#FALSE 
+#18126
+
+# AQUESTA PART NO PERQEU NO DUPLICATS: in order to resolve  duplucation issue
+#row_Name[duplicated(row_Name) == TRUE]
+#[1] "SLC35E2"
+#
+#row_Name[grep("SLC35E2", row_Name)[2]] <- "SLC35E2_2"
+#setting rna row names 
+row.names(cis_exp_mat) <- row_Name
+rm(df_rownames, row_Name) # removing datasets that we do not need anymore
+
+
+```
+
+```{r}
+#__________________correlation analysis__________________#
+cis_reg = data.frame( gene_=character(0), cpg_=character(0), p_val=numeric(0), cor_=numeric(0))
+
+for (i in 1:nrow(db_genes)){
+  cpg_ = db_genes[i,][1]
+  gene_ = db_genes[i,][2]
+  if (gene_ %in% rownames(cis_exp_mat)){
+    df_1 <- data.frame(exp= cis_exp_mat[as.character(gene_), ])
+    df_2 <- t(cis_bval_mat[as.character(cpg_), ])
+    df_ <- merge(df_1,df_2, by = 0)
+    res_ <- cor.test(df_[,2], df_[,3], method = "pearson")
+    p_val = round(res$p.value, 4)
+    cor_ = round(res$estimate, 4)
+    cis_reg[i,] <- c(gene_, cpg_, p_val, cor_)
+  }
+}
+cis_reg$adj.P.Val = round(p.adjust(cis_reg$pval, "fdr"),4)
+cis_reg <- cis_reg[with(cis_reg, order(cor_, adj.P.Val)), ]
+```
+
+```{r} 
+# STUDY by GENE
+# top pair visualization
+```
+
+```{r}
+#ANGEL1	ENSG00000013523.11 - cg05349242
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000013523.11", ]), 
+            t(cis_bval_mat[c("cg05349242"), ]),
+            by = 0)
+
+
+png(file="Plots_results/DEG_DMR_correlation/5.2.- ANGEL1_cg05349242.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+
+sapply(names(gen_vis)[3:8], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("ANGEL1",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+
+dev.off()
+
+```
+
+```{r}
+#ADAMTSL1	ENSG00000178031.17
+#cg06294856
+#cg13739410
+#cg06500883
+#cg13468759
+#cg14523394
+#cg13883376
+#cg14003978
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000178031.17", ]), 
+            t(cis_bval_mat[c("cg06294856", "cg13739410", "cg06500883", "cg13468759", "cg14523394", "cg13883376", "cg14003978"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("ADAMTSL1",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#ATXN2L	ENSG00000168488.18
+#cg23051598
+#cg05785839
+
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000168488.18", ]), 
+            t(cis_bval_mat[c("cg23051598", "cg05785839"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("ATXN2L",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#CCL21	ENSG00000137077.8
+#cg27443224
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000137077.8", ]), 
+            t(cis_bval_mat[c("cg27443224"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("CCL21",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#CCNA1	ENSG00000133101.10
+#cg14089714
+#cg26345046
+#cg19866195
+
+
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000133101.10", ]), 
+            t(cis_bval_mat[c("cg14089714","cg26345046","cg19866195"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("CCNA1",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#CLN3	ENSG00000188603.22
+
+#cg09900266
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000188603.22", ]), 
+            t(cis_bval_mat[c("cg09900266"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("CLN3",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#COG3	ENSG00000136152.15
+#cg22419414
+
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000136152.15", ]), 
+            t(cis_bval_mat[c("cg22419414"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("COG3",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#DDX58	ENSG00000107201.10
+#cg14277298
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000107201.10", ]), 
+            t(cis_bval_mat[c("cg14277298"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("DDX58",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#HS3ST2	ENSG00000122254.7
+#cg09869531
+#cg19064258
+#cg03132773
+#cg16399049
+#cg08214995
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000122254.7", ]), 
+            t(cis_bval_mat[c("cg09869531","cg19064258","cg03132773", "cg16399049", "cg08214995"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("HS3ST2",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#IRX3	ENSG00000177508.12
+
+#cg13660279
+#cg02787087
+#cg05099576
+#cg02198701
+#cg02602550
+#cg04834436
+#cg06431877
+
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000122254.7", ]), 
+            t(cis_bval_mat[c("cg13660279", "cg02787087", "cg05099576", "cg02198701",
+"cg02602550", "cg04834436", "cg06431877"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("IRX3",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#LRFN5	ENSG00000165379.13
+#cg04784672
+#cg13526007
+
+
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000165379.13", ]), 
+            t(cis_bval_mat[c("cg04784672", "cg13526007"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("LRFN5",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#MAZ	ENSG00000103495.14
+
+#cg12521167
+#cg16518772
+#cg04588455
+#cg00564759
+#cg07675334
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000103495.14", ]), 
+            t(cis_bval_mat[c("cg12521167", "cg16518772", "cg04588455","cg00564759","cg07675334"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("MAZ",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#MMP2	ENSG00000087245.13
+#cg08133699
+#cg09530163
+#cg26795346
+#cg12317456
+#cg08318842
+#cg01821058
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000087245.13", ]), 
+            t(cis_bval_mat[c("cg08133699", "cg09530163", "cg26795346","cg12317456","cg08318842", "cg01821058"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("MMP2",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#NEK9	ENSG00000119638.14
+
+#cg08310116
+
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000119638.14", ]), 
+            t(cis_bval_mat[c("cg08310116"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("NEK9",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#NETO2	ENSG00000171208.10
+
+
+#cg05532446
+#cg03283929
+
+
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000171208.10", ]), 
+            t(cis_bval_mat[c("cg05532446", "cg03283929"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("NETO2",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#PRRT2	ENSG00000167371.21
+#cg04203429
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000167371.21", ]), 
+            t(cis_bval_mat[c("cg04203429"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("PRRT2",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#RCBTB1	ENSG00000136144.12
+
+#cg11801959
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000136144.12", ]), 
+            t(cis_bval_mat[c("cg11801959"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:9], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("RCBTB1",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#SALL1	ENSG00000103449.12
+
+
+#cg06724588
+#cg06274671
+#cg06232807
+
+#cg22674717
+#cg05404010
+#cg05213609
+
+#cg02288754
+#cg09016242
+#cg07498275
+
+#cg06653699
+#cg02864757
+#cg00310215
+
+#cg27423760
+#cg01146232
+#cg01500945
+
+#cg08776356
+#cg04844564
+
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000136144.12", ]), 
+            t(cis_bval_mat[c("cg06724588", "cg06274671", "cg06232807", "cg22674717", "cg05404010", "cg05213609", "cg02288754", "cg09016242", "cg07498275", "cg06653699", "cg02864757", "cg00310215", "cg27423760", "cg01146232", "cg01500945", "cg08776356","cg04844564" ), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:19], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("SALL1",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#SLC25A15	ENSG00000102743.15
+
+
+#cg16989646
+#cg00151919
+
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000102743.15", ]), 
+            t(cis_bval_mat[c("cg00151919"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:4], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("SLC25A15",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#STX4	ENSG00000103496.15
+#cg05916757
+#cg09775103
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000103496.15", ]), 
+            t(cis_bval_mat[c("cg05916757", "cg09775103"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:4], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("STX4",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#TBX6	ENSG00000149922.11
+
+#cg05806717
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000149922.11", ]), 
+            t(cis_bval_mat[c("cg05806717"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:4], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("TBX6",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#THSD1	ENSG00000136114.17
+#cg04549287
+#cg23498925
+
+
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000136114.17", ]), 
+            t(cis_bval_mat[c("cg04549287", "cg23498925"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:4], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("THSD1",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+```{r}
+#TMEM229B	ENSG00000198133.8
+
+#cg25006823
+#cg20454158
+
+gen_vis <- merge(data.frame(exp= cis_exp_mat["ENSG00000198133.8", ]), 
+            t(cis_bval_mat[c("cg25006823", "cg20454158"), ]),
+            by = 0) 
+
+#png(file="Plots_results/DEG_DMR_correlation/5.2.- ADAMTSL1_cg_.png" #,  width =  500 , height = 400 , units = "px"     )
+
+sapply(names(gen_vis)[3:4], function(cpg_){
+  plot(x= gen_vis[ ,cpg_], y = gen_vis[,2], xlab = "beta value",
+       xlim = c(0,1),
+       ylab = "normalized expression" ,
+       pch = 19,
+       main = paste("TMEM229B",cpg_, sep = "-"),
+       frame = FALSE)
+  abline(lm(gen_vis[,2] ~ gen_vis[ ,cpg_], data = gen_vis), col = "blue")
+})
+dev.off()
+
+```
+
+
+## DEG_DMR study
+
+```{r}
+cols <- c("hypo-down" = "#8C510A", "hypo-up" = "#80CDC1", "not-sig" = "grey30", "hypr-down" = "#DFC27D", "hypr-up" = "#C7EAE5")
+
+DEG_DMG_inter <- intersect(DEG_vector, DMG_vector)
+```
+
+
+```{r}
+#Create a top 24 gene table with all the RNA, CpG and  
+
+## A.- DEG tables
+two_inter_INFO <-DEG_results[DEG_results$gene_name %in% DEG_DMG_inter,] 
+dim(two_inter_INFO) #[1] 639  17
+two_inter_INFO <- as.data.frame(two_inter_INFO)
+two_inter_INFO
+
+two_inter_INFO[1:5]<- NULL
+two_inter_INFO[4:6]<- NULL
+two_inter_INFO[5:6]<- NULL
+two_inter_INFO[7]<- NULL
+
+two_inter_INFO <- two_inter_INFO[,c(3,1,2,4,5,6)]
+two_inter_INFO$Gene <- two_inter_INFO$gene_name
+two_inter_INFO$gene_name<- NULL
+two_inter_INFO
+```
+
+```{r}
+
+## B.- DMG tables
+DMG_two_inter_INFO <- DMCs_sig[DMCs_sig$Gene %in% DEG_DMG_inter,] 
+dim(DMG_two_inter_INFO) #[1] 2392   31 hi ha mes d'un CpG per gen
+DMG_two_inter_INFO <- as.data.frame(DMG_two_inter_INFO)
+
+
+rownames(DMG_two_inter_INFO )<- NULL
+DMG_two_inter_INFO[2:3]<-NULL 
+DMG_two_inter_INFO[3:10]<-NULL
+DMG_two_inter_INFO[4:5]<-NULL
+DMG_two_inter_INFO[5:11]<-NULL
+DMG_two_inter_INFO[6:7]<-NULL
+DMG_two_inter_INFO[8]<- NULL
+DMG_two_inter_INFO[9]<-NULL
+
+summary(DMG_two_inter_INFO$logFC)
+# Min.    1st Qu.  Median    Mean  3rd Qu.    Max. 
+# -4.349  -1.693  -1.288  -1.182  -0.838     2.688 
+
+#DMG_3_inter_INFO <- DMG_3_inter_INFO[,c(8, 2,1,3,4,5,6,7)]
+#rownames(DMG_3_inter_INFO) <- DMG_3_inter_INFO$Gene
+#DMG_3_inter_INFO$Gene<- NULL
+#non-unique values when setting 'row.names': ‘ADAMTSL1’, ‘ATXN2L’, ‘CCNA1’, ‘HS3ST2’, ‘IRX6’, ‘LRFN5’, ‘MAZ’, ‘MMP2’, ‘NETO2’, ‘SALL1’, ‘SLC25A15’, ‘STX4’, ‘THSD1’, ‘TMEM229B’ 
+
+DMG_two_inter_INFO$Gene_Group <- sapply(sapply(strsplit(DMG_two_inter_INFO$UCSC_RefGene_Group, ";"), unique), function(x)x[1])
+DMG_two_inter_INFO$UCSC_RefGene_Group<- NULL
+DMG_two_inter_INFO <- DMG_two_inter_INFO[,c(7, 1, 2,3,8,4,5,6)]
+DMG_two_inter_INFO
+```
+
+
+```{r}
+#Merge 3 info df
+#CNV_3_inter_INFO, DEG_3_inter_INFO, DMG_3_inter_INFO
+
+table_2_omics_INFO <- merge(two_inter_INFO, DMG_two_inter_INFO, by="Gene", all=TRUE)
+#rownames(table_3_omics_INFO) <- table_3_omics_INFO$Gene
+#table_3_omics_INFO$Row.names<- NULL
+table_2_omics_INFO
+
+
+#Add "Gene_expression" variable
+table_2_omics_INFO$Gene_expression <- ifelse(table_2_omics_INFO$logFC.x > 0, 'Up','Down')
+
+##DNA methylation:
+table_2_omics_INFO$DNA_Methylation <- ifelse(table_2_omics_INFO$logFC.y > 0, 'Hyper','Hypo')
+
+
+saveRDS(table_2_omics_INFO, file = "5.- Taula_2_omics_INFO_CpG.rda")
+write.csv(table_2_omics_INFO,"Plots_results/5.- Taula_2_omics_INFO_CpG.csv", row.names = T)
+
+
+table(table_2_omics_INFO$Gene_expression, table_2_omics_INFO$DNA_Methylation)
+#        Hyper Hypo
+#  Down   130 1409
+#  Up      95  758
+
+#With out duplications
+table_2_omics_INFO_dp<- table_2_omics_INFO[!duplicated(table_2_omics_INFO$Gene), ]
+dim(table_2_omics_INFO_dp) #[1] [1] 639  15
+
+table(table_2_omics_INFO_dp$Gene_expression, table_2_omics_INFO_dp$DNA_Methylation)
+
+#       Hyper Hypo
+#  Down    71  290
+#  Up      47  231
+
+```
+
+
+```{r}
+
+#Multiple Cpg per DEG
+
+table_2_omics_INFO$group <- ifelse(table_2_omics_INFO$logFC.y < 0 & table_2_omics_INFO$logFC.x < 0, "hypo-down",
+                       ifelse(table_2_omics_INFO$logFC.y < 0 & table_2_omics_INFO$logFC.x >= 0, "hypo-up",
+                              ifelse(table_2_omics_INFO$logFC.y >= 0 & table_2_omics_INFO$logFC.x < 0, "hypr-down",
+                                     ifelse(table_2_omics_INFO$logFC.y >= 0 & table_2_omics_INFO$logFC.x >= 0, "hypr-up", "not-sig"))))
+
+
+
+ggpubr::ggscatter(
+    data = table_2_omics_INFO,
+    x = "logFC.y",
+    y = "logFC.x",
+    fill = "group",
+    palette = cols,
+    color = "group",
+    xlab = "DNA Methylation (log2 FC)",
+    ylab = "RNA (log2 FC)",
+    title = paste0(" methylation"),
+    label = "Gene", repel = TRUE,
+     label.select = DEG_DMG_inter,
+    max.overlaps = Inf
+  ) 
+
+```
+
+```{r}
+
+#Multiple Cpg per DEG
+
+table_2_omics_INFO_dp$group <- ifelse(table_2_omics_INFO_dp$logFC.y < 0 & table_2_omics_INFO_dp$logFC.x < 0, "hypo-down",
+                       ifelse(table_2_omics_INFO_dp$logFC.y < 0 & table_2_omics_INFO_dp$logFC.x >= 0, "hypo-up",
+                              ifelse(table_2_omics_INFO_dp$logFC.y >= 0 & table_2_omics_INFO_dp$logFC.x < 0, "hypr-down",
+                                     ifelse(table_2_omics_INFO_dp$logFC.y >= 0 & table_2_omics_INFO_dp$logFC.x >= 0, "hypr-up", "not-sig"))))
+
+table(table_2_omics_INFO_dp$group)
+#hypo-down   hypo-up hypr-down   hypr-up 
+#      290       231        71        47 
+
+
+
+ggpubr::ggscatter(
+    data = table_2_omics_INFO_dp,
+    x = "logFC.y",
+    y = "logFC.x",
+    fill = "group",
+    palette = cols,
+    color = "group",
+    xlab = "DNA Methylation (log2 FC)",
+    ylab = "RNA (log2 FC)",
+    title = paste0(" methylation"),
+    #label = "Gene", 
+    repel = TRUE,
+     #label.select = DEG_DMG_inter,
+    max.overlaps = Inf
+  ) 
+```
+
+
+```{r}
+
+#OPCIO 2
+x <-table_2_omics_INFO_dp$logFC.y
+y<-table_2_omics_INFO_dp$logFC.x
+
+
+cols <- c("#8C510A", "#80CDC1",  "#DFC27D", "#35978F")
+
+
+png(file="Plots_results/5.2- Scatter_DEG_DMR.png"#,  width =  500 , height = 400 , units = "px" 
+    )
+
+plot(table_2_omics_INFO_dp$logFC.y, table_2_omics_INFO_dp$logFC.x, xlab="Methylation logFC", ylab="Expression logFC", pch=16, cex=0.8, col= cols[factor(table_2_omics_INFO_dp$group)])
+abline(h=0, v=0, col="gray30", lty=2, lwd=1)
+abline(lm(y ~ x), col = "red", lwd = 1)
+
+dev.off()
+
+
+
+```

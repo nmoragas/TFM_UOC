@@ -1,0 +1,626 @@
+---
+title: "6.- Enrichment Analysis"
+author: "Nuria Moragas"
+date: "August 2022"
+---
+
+
+  * 6.1.- Work environment preparation
+  * 6.2 - Enrichment analysis
+  * 6.3.- Enrichment Analysis - KEGG
+          
+  
+# 6.1 -Work environment preparation
+
+This part include:
+  - 6.1.1 - Directory Definition
+  - 6.1.2 - Library Call
+  - 6.1.3 - Color Palette
+  - 6.1.4 - 3-Omics importation
+  
+  
+## 6.1.1 - Directory Definition
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, comment = NULL, cache = TRUE)
+```
+
+```{r, echo=TRUE, message=FALSE,warning=FALSE, include=TRUE}
+
+#___________________Directori definition____________________#
+
+setwd("./Scrips_R")
+
+```
+
+## 6.1.2 - Library Call:
+
+```{r message=FALSE, warning=FALSE}
+#_________________________Packages_______________________#
+
+#Load packages
+#TCGA
+
+library(dplyr)
+library(RColorBrewer)
+library(ggplot2)
+
+library(clusterProfiler)
+library(enrichplot)
+library(ggnewscale) #emaplot
+
+
+
+
+```
+
+## 6.1.3 - Color Palette:
+
+```{r}
+ #...................................COLORS........................
+
+colors_Gr_Bw <- c( "#35978F", "#80CDC1", "#C7EAE5", "#FFFFFF" , "#F6E8C3", "#DFC27D", "#BF812D" ,"#8C510A")
+
+```
+
+
+**WEB**
+
+https://isglobal-brge.github.io/Master_Bioinformatics/enrichment-analysis.html
+
+https://reader.elsevier.com/reader/sd/pii/S2666675821000667?token=ABFF15530425773209CA58C478CB1BA8085DC6E4A865F2D0D9D8780F7875CDAE3EA639A239A092DBB96ABAD1FB765233&originRegion=eu-west-1&originCreation=20220824102937
+
+https://bioc.ism.ac.jp/packages/3.7/bioc/vignettes/enrichplot/inst/doc/enrichplot.html
+
+https://yulab-smu.top/biomedical-knowledge-mining-book/enrichplot.html
+
+
+
+
+
+# 6.2.- Enrichment Analysis - GO
+
+  - 6.2.1.- Data preparation
+  - 6.2.2.- MSigDB*: Molecular Signatures Database (MSigDB)
+  - 6.2.3.- KEGG Enrichment Analysis
+  - 6.2.4.- Gene-Concept Network
+  
+  
+
+
+## 6.2.1.- Data preparation:
+
+```{r}
+#Load results:
+Taula_3_omics_INFO <- read_csv("Plots_results/5.- Taula_3_omics_INFO.csv")
+dim(Taula_3_omics_INFO )#24 16
+
+gene_ID <- Taula_3_omics_INFO$gene_id
+
+
+
+```
+
+
+```{r , echo=TRUE, message=FALSE,warning=FALSE, include=TRUE}
+#Dalate .xx
+gene_3_omics_ID_vector<- gsub("\\..*","",gene_ID)
+
+gene_3_omics_ID_vector_up <- c("ENSG00000198133","ENSG00000167371","ENSG00000149922","ENSG00000137077","ENSG00000136152","ENSG00000168488","ENSG00000103496","ENSG00000102743","ENSG00000013523","ENSG00000119638","ENSG00000103495","ENSG00000188603","ENSG00000136144")
+
+gene_3_omics_ID_vector_down <- c("ENSG00000177508","ENSG00000107201","ENSG00000136114","ENSG00000103449","ENSG00000165379","ENSG00000087245","ENSG00000122254","ENSG00000178031","ENSG00000159387","ENSG00000133101","ENSG00000171208")
+```
+
+
+```{r}
+# Obtaining the ENTREZ GENE ID: 
+library(org.Hs.eg.db)
+keytypes(org.Hs.eg.db)
+
+
+# ENSEMBL:ENSG00000130720
+# SYMBOL: FIBCD1
+# ENTREZ GENE ID: 84929
+
+```
+
+```{r}
+#ALL
+deGenes_gene_3_omics <- unlist(mget(gene_3_omics_ID_vector, envir=org.Hs.egENSEMBL2EG,ifnotfound = NA))
+length(deGenes_gene_3_omics)#24
+as.data.frame(deGenes_gene_3_omics)
+
+```
+
+```{r}
+#Up
+deGenes_gene_3_omics_up <- unlist(mget(gene_3_omics_ID_vector_up, envir=org.Hs.egENSEMBL2EG,ifnotfound = NA))
+length(deGenes_gene_3_omics_up)#13
+as.data.frame(deGenes_gene_3_omics_up)
+
+```
+
+```{r}
+#down
+deGenes_gene_3_omics_down <- unlist(mget(gene_3_omics_ID_vector_down, envir=org.Hs.egENSEMBL2EG,ifnotfound = NA))
+length(deGenes_gene_3_omics_down)#11
+as.data.frame(deGenes_gene_3_omics_down)
+
+```
+
+## 6.2.2.- MSigDB*: Molecular Signatures Database (MSigDB) 
+
+        - *H: hallmark gene sets **
+        - C1: positional gene sets
+        - C2: curated gene sets
+        - C3 motif gene sets
+        - C4 computational gene sets
+        - C5 GO gene sets **
+        - C6 oncogenic signatures **
+        - C7 inmunologic signatures **
+
+Data download:
+http://www.gsea-msigdb.org/gsea/msigdb/human/collections.jsp#H
+
+```{r}
+library(msigdbr)
+```
+
+
+#### ----------------------- C5 GO gene sets  ------------------------
+
+```{r}
+
+###########################
+#      C5 GO gene sets    #
+###########################
+#ALL
+c5.all <- read.gmt("C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/c5.all.v2022.1.Hs.entrez.gmt")
+#Gene sets representing potential targets of regulation by transcription factors or microRNAs. 
+
+ans.tf_c5_3_omics <- enricher(deGenes_gene_3_omics, 
+                              TERM2GENE=c5.all,
+                              pvalueCutoff = 0.05,
+                              pAdjustMethod = "none")
+tab.tf_c5_3_omics <- as.data.frame(ans.tf_c5_3_omics)
+tab.tf_c5_3_omics
+
+tab.tf_c5_3_omics<- subset(tab.tf_c5_3_omics, Count>2)
+tab.tf_c5_3_omics
+
+write.table(tab.tf_c5_3_omics, file="Plots_results/6.1.- C5_all_GO_gen_Set_3_omics.csv", sep=",", row.names=T)
+
+```
+
+```{r}
+dotplot(ans.go_3_omics, showCategory=10) + 
+    scale_colour_gradient(low="#8C510A", high="#35978F")+
+   geom_point() +
+  scale_color_gradient(low="#8C510A", high="#35978F") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("GeneRatio") + 
+  ggtitle("GO enrichment analysis")
+
+
+
+```
+
+
+```{r}
+#Up
+
+
+ans.tf_c5_3_omics_up <- enricher(deGenes_gene_3_omics_up, 
+                              TERM2GENE=c5.all,
+                              pvalueCutoff = 0.05,
+                              pAdjustMethod = "none")
+tab.tf_c5_3_omics_up <- as.data.frame(ans.tf_c5_3_omics_up)
+tab.tf_c5_3_omics_up
+
+tab.tf_c5_3_omics_up<- subset(tab.tf_c5_3_omics_up, Count>2)
+tab.tf_c5_3_omics_up
+
+write.table(tab.tf_c5_3_omics_up, file="C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/Plots_results/6.1.- C5_all_GO_gen_Set_3_omics_up.csv", sep=",", row.names=T)
+
+
+saveRDS(tab.tf_c5_3_omics_up, file = "6.- tab.tf_c5_3_omics_up.rda")
+```
+
+```{r}
+
+
+png(file="Plots_results/6.1.- Dotplo_GO_C5_up.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+
+
+dotplot(ans.tf_c5_3_omics_up) + 
+    scale_colour_gradient(low="#8C510A", high="#35978F")+
+   geom_point() +
+  scale_color_gradient(low="#8C510A", high="#35978F") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("GeneRatio") + 
+  ggtitle("GO enrichment analysis - Up")
+
+dev.off()
+
+```
+
+
+```{r}
+#Down
+
+
+ans.tf_c5_3_omics_down<- enricher(deGenes_gene_3_omics_down, 
+                              TERM2GENE=c5.all,
+                              pvalueCutoff = 0.05,
+                              pAdjustMethod = "none")
+tab.tf_c5_3_omics_down <- as.data.frame(ans.tf_c5_3_omics_down)
+tab.tf_c5_3_omics_down
+
+tab.tf_c5_3_omics_down<- subset(tab.tf_c5_3_omics_down, Count>2)
+tab.tf_c5_3_omics_down
+
+write.table(tab.tf_c5_3_omics_down, file="C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/Plots_results/6.1.- C5_all_GO_gen_Set_3_omics_down.csv", sep=",", row.names=T)
+
+saveRDS(tab.tf_c5_3_omics_down, file = "6.- tab.tf_c5_3_omics_down.rda")
+```
+
+
+```{r}
+
+
+png(file="Plots_results/6.1.- Dotplo_GO_C5_down.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+
+
+dotplot(ans.tf_c5_3_omics_down, showCategory=4) + 
+    scale_colour_gradient(low="#8C510A", high="#35978F")+
+   geom_point() +
+  scale_color_gradient(low="#8C510A", high="#35978F") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("GeneRatio") + 
+  ggtitle("GO enrichment analysis - Down")
+
+dev.off()
+
+```
+
+
+
+
+#### ----------------------- H: hallmark gene sets  ------------------------
+
+
+```{r}
+
+
+###########################
+#   H: hallmark gene sets #
+###########################
+
+
+hall <- read.gmt("C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/h.all.v2022.1.Hs.entrez.gmt")
+```
+
+
+```{r}
+#Up 
+
+ans.hall_3_omics_up<- enricher(deGenes_gene_3_omics_up, 
+                              TERM2GENE=hall,
+                              pvalueCutoff = 0.05,
+                              pAdjustMethod = "none")
+
+
+
+tab.hall_3_omics_up <- as.data.frame(ans.hall_3_omics_up)
+tab.hall_3_omics_up
+#tab.hall_3_omics_up<- subset(tab.hall_3_omics_up, Count>1)
+#tab.hall_3_omics_up
+
+
+write.table(tab.hall_3_omics_up, file="C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/Plots_results/6.1.- Hallmark_GO_gen_Set_3_omics_up.csv", sep=",", row.names=T)
+
+
+saveRDS(tab.hall_3_omics_up, file = "6.- tab.hall_3_omics_up.rda")
+```
+
+```{r}
+
+
+png(file="Plots_results/6.1.- Dotplo_GO_hallmarks_up.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+
+
+dotplot(ans.hall_3_omics_up) + 
+    scale_colour_gradient(low="#8C510A", high="#35978F")+
+   geom_point() +
+  scale_color_gradient(low="#8C510A", high="#35978F") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("GeneRatio") + 
+  ggtitle("Hallmark Gene Set - Up")
+
+dev.off()
+
+```
+
+```{r}
+#Down
+
+ans.hall_3_omics_down<- enricher(deGenes_gene_3_omics_down, 
+                              TERM2GENE=hall,
+                              pvalueCutoff = 0.05,
+                              pAdjustMethod = "none")
+
+
+
+tab.hall_3_omics_down <- as.data.frame(ans.hall_3_omics_down)
+tab.hall_3_omics_down
+#tab.hall_3_omics_up<- subset(tab.hall_3_omics_up, Count>1)
+#tab.hall_3_omics_up
+
+
+write.table(tab.hall_3_omics_up, file="C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/Plots_results/6.1.- Hallmark_GO_gen_Set_3_omics_down.csv", sep=",", row.names=T)
+
+saveRDS(tab.hall_3_omics_down, file = "6.- tab.hall_3_omics_down.rda")
+```
+
+
+
+```{r}
+
+
+png(file="Plots_results/6.1.- Dotplo_GO_hallmarks_down.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+
+
+dotplot(ans.hall_3_omics_down) + 
+    scale_colour_gradient(low="#8C510A", high="#35978F")+
+   geom_point() +
+  scale_color_gradient(low="#8C510A", high="#35978F") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("GeneRatio") + 
+  ggtitle("Hallmark Gene Set - Down")
+
+dev.off()
+
+```
+
+
+#### ----------------------- C6 oncogenic signatures  ------------------------
+
+
+```{r}
+
+
+###############################
+#   C6 oncogenic signatures   #
+###############################
+
+
+c6 <- read.gmt("C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/c6.all.v2022.1.Hs.entrez.gmt")
+```
+
+
+```{r}
+#Up 
+
+ans.C6_3_omics_up<- enricher(deGenes_gene_3_omics_up, 
+                              TERM2GENE=c6,
+                              pvalueCutoff = 0.05,
+                              pAdjustMethod = "none")
+
+
+
+tab.C6_3_omics_up <- as.data.frame(ans.C6_3_omics_up)
+tab.C6_3_omics_up # SENSE DIFERENCIES
+#tab.hall_3_omics_up<- subset(tab.hall_3_omics_up, Count>1)
+#tab.hall_3_omics_up
+
+
+```
+
+
+```{r}
+#Down
+
+ans.C6_3_omics_down<- enricher(deGenes_gene_3_omics_down, 
+                              TERM2GENE=c6,
+                              pvalueCutoff = 0.05,
+                              pAdjustMethod = "none")
+
+tab.C6_3_omics_down <- as.data.frame(ans.C6_3_omics_down)
+tab.C6_3_omics_down # SENSE DIF
+#tab.hall_3_omics_up<- subset(tab.hall_3_omics_up, Count>1)
+#tab.hall_3_omics_up
+
+
+
+```
+
+
+
+#### ----------------------- C7 inmunologic signatures  ------------------------
+
+
+```{r}
+
+
+###############################
+#   C7 inmunologic signatures #
+###############################
+
+
+c7 <- read.gmt("C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/c7.all.v2022.1.Hs.entrez.gmt")
+```
+
+
+```{r}
+#Up 
+
+ans.c7_3_omics_up<- enricher(deGenes_gene_3_omics_up, 
+                              TERM2GENE=c7,
+                              pvalueCutoff = 0.05,
+                              pAdjustMethod = "none")
+
+
+
+tab.c7_3_omics_up <- as.data.frame(ans.c7_3_omics_up)
+tab.c7_3_omics_up
+tab.c7_3_omics_up<- subset(tab.c7_3_omics_up, Count>1)
+tab.c7_3_omics_up
+
+
+write.table(tab.c7_3_omics_up, file="C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/Plots_results/6.1.- C7_inmunologic_gen_Set_3_omics_up.csv", sep=",", row.names=T)
+
+saveRDS(tab.c7_3_omics_up, file = "6.- tab.c7_3_omics_up.rda")
+```
+
+```{r}
+
+
+png(file="Plots_results/6.1.- Dotplo_GO_C7_immuno_up.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+
+
+dotplot(ans.c7_3_omics_up) + 
+    scale_colour_gradient(low="#8C510A", high="#35978F")+
+   geom_point() +
+  scale_color_gradient(low="#8C510A", high="#35978F") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("GeneRatio") + 
+  ggtitle("Inmunologic signatures - Up")
+
+dev.off()
+
+```
+
+```{r}
+#Down
+
+ans.c7_3_omics_down<- enricher(deGenes_gene_3_omics_down, 
+                              TERM2GENE=c7,
+                              pvalueCutoff = 0.05,
+                              pAdjustMethod = "none")
+
+
+
+tab.c7_3_omics_down <- as.data.frame(ans.c7_3_omics_down)
+tab.c7_3_omics_down
+tab.c7_3_omics_down<- subset(tab.c7_3_omics_down, Count>1)
+tab.c7_3_omics_down
+
+
+write.table(tab.c7_3_omics_down, file="C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/Plots_results/C7_inmunologic_gen_Set_3_omics_down.csv", sep=",", row.names=T)
+
+
+saveRDS(tab.c7_3_omics_down, file = "6.- tab.c7_3_omics_down.rda")
+```
+
+
+
+```{r}
+
+
+png(file="Plots_results/6.1.- Dotplo_GO_C7_immuno_down.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+
+
+dotplot(ans.c7_3_omics_down) + 
+    scale_colour_gradient(low="#8C510A", high="#35978F")+
+   geom_point() +
+  scale_color_gradient(low="#8C510A", high="#35978F") +
+  theme_bw() + 
+  ylab("") + 
+  xlab("GeneRatio") + 
+  ggtitle("Inmunologic signatures - Down")
+
+dev.off()
+
+```
+
+
+
+
+## 6.2.3.- KEGG Enrichment Analysis
+
+```{r}
+# ________________________    Up   _____________________________________
+
+ans.kegg_3_omics_up <- enrichKEGG(gene = deGenes_gene_3_omics_up,
+                       organism = 'hsa',    
+                       keyType = "kegg",#supported organism listed in 'https://www.genome.jp/kegg/catalog/org_list.html' hsa = homo sapiens
+                       pAdjustMethod = "none",
+                       pvalueCutoff = 0.05)
+
+tab.kegg_3_omics_up <- as.data.frame(ans.kegg_3_omics_up)
+tab.kegg_3_omics_up # NO serveix de masa, nomes hi ha count = 1
+
+write.table(tab.kegg_3_omics_up, file="C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/Plots_results/KEGG_3omics_up.csv", sep=",", row.names=T)
+
+saveRDS(tab.kegg_3_omics_up, file = "6.- tab.kegg_3_omics_up.rda")
+
+```
+
+```{r}
+#PLOT KEGGG
+library(cowplot)
+
+
+png(file="Plots_results/6.1.- Dotplot_KEGG_3omics_up.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+
+dotplot(ans.kegg_3_omics_up, showCategory=20) + 
+  scale_colour_gradient(low="#8C510A", high="#35978F",
+      limits = c(0, 0.05),
+      breaks = c(0.01, 0.02, 0.03, 0.04, 0.05),
+      #labels = c("-15down", "-7.5", "0", "7.5", "15up"),  
+          guide=guide_colorbar(reverse=TRUE) )  +
+    labs(size="Count", colour="p.adjust") + 
+  ggtitle("KEGG Up")
+
+dev.off()
+```
+
+```{r}
+# ________________________    Down   _____________________________________
+
+ans.kegg_3_omics_down <- enrichKEGG(gene = deGenes_gene_3_omics_down,
+                       organism = 'hsa',                      #supported organism listed in 'https://www.genome.jp/kegg/catalog/org_list.html' hsa = homo sapiens
+                       pAdjustMethod = "none",
+                       pvalueCutoff = 0.05)
+
+tab.kegg_3_omics_down <- as.data.frame(ans.kegg_3_omics_down)
+tab.kegg_3_omics_down # NO serveix de masa, nomes hi ha count = 1
+
+write.table(tab.kegg_3_omics_down, file="C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/Plots_results/KEGG_3omics_down.csv", sep=",", row.names=T)
+
+saveRDS(tab.kegg_3_omics_down, file = "6.- tab.kegg_3_omics_down.rda")
+```
+
+
+
+```{r}
+
+png(file="Plots_results/6.1.- Dotplot_KEGG_3omics_down.png" #,  width =  500 , height = 400 , units = "px" 
+    )
+
+dotplot(ans.kegg_3_omics_down, showCategory=20) + 
+  scale_colour_gradient(low="#8C510A", high="#35978F",
+      limits = c(0, 0.05),
+      breaks = c(0.01, 0.02, 0.03, 0.04, 0.05),
+      #labels = c("-15down", "-7.5", "0", "7.5", "15up"),  
+          guide=guide_colorbar(reverse=TRUE) )  +
+    labs(size="Count", colour="p.adjust") + 
+  ggtitle("KEGG Down")
+
+dev.off()
+```
+

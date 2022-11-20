@@ -1,0 +1,5 @@
+"ID","Description","GeneRatio","BgRatio","pvalue","p.adjust","qvalue","geneID","Count"
+"hsa04130","hsa04130","SNARE interactions in vesicular transport","1/4","33/8190",0.0160229829367493,0.0160229829367493,0.0673292788474972,"6810",1
+"hsa04962","hsa04962","Vasopressin-regulated water reabsorption","1/4","44/8190",0.0213209383017074,0.0213209383017074,0.0673292788474972,"6810",1
+"hsa04061","hsa04061","Viral protein interaction with cytokine and cytokine receptor","1/4","100/8190",0.0479614253376045,0.0479614253376045,0.0716267676168657,"6366",1
+"hsa04064","hsa04064","NF-kappa B signaling pathway","1/4","104/8190",0.0498432726204753,0.0498432726204753,0.0716267676168657,"6366",1

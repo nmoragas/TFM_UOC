@@ -1,0 +1,2776 @@
+---
+title: '8.1.- - Gene Set Validation MBCP'
+author: "Nuria Moragas"
+date: "OCtubre 2022"
+---
+
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(error = TRUE)
+#knitr::opts_chunk$set(echo = T, results ="markup")
+```
+
+
+**WEB**
+- https://github.com/cBioPortal/2020-cbioportal-r-workshop/blob/master/docs/Webinar_Example1.pdf
+
+
+# 8.1 -Work environment preparation
+
+## Directory Definition
+```{r setup, include=FALSE}
+setwd("C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R")
+```
+
+
+## Library Call
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE, results='hide'}
+
+library(cBioPortalData)
+library(httr)
+library(dplyr)
+library(stringr)
+library(biomaRt)
+library(ggplot2)
+library(ggpubr) # estadistica
+
+```
+
+
+## Color Palette
+
+
+
+## cBioPortal call
+
+### Look at cBioPortal datasets:
+
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+#Obtaining the cBioPortal API representation object. cbio is the central object.
+cbio <- cBioPortal()
+
+#Get the list of studies available:
+studies <- getStudies(cbio, buildReport = TRUE)
+```
+
+```{r}
+#Breast cancer studies:
+studies[grep("Breast.*", studies$name), c("name", "studyId")]
+
+```
+The database selected is The Metastatic Breast Cancer Project (MBCP) (Provisional, February 2020, with:
+- ID: brca_mbcproject_wagle_2017
+
+
+
+### Import and study of MBCProject dataset 
+
+
+**Download RNA-seq MBCProject dataset**
+
+```{r}
+# -------------------------------------------RNA-seq-------------------------------------------
+
+MBCP_RNAseq <- read.table(file.path("Raw_data/brca_mbcproject_wagle_2017/brca_mbcproject_wagle_2017/data_mrna_seq_v2_rsem.txt"), header=TRUE, sep = "\t")
+MBCP_RNAseq
+
+```
+
+
+
+
+**Download ID participants MBCProject dataset**
+```{r}
+## List all study (ID) participants:
+
+all_samples <- allSamples(cbio, studyId = "brca_mbcproject_wagle_2017")
+all_samples
+
+table(all_samples$sampleType) 
+#Primary Solid Tumor                 237
+```
+
+
+
+**MBCProject dataset PATIENTS clinical data**
+
+``` {r, include = FALSE}
+#Obtain the clinical data directly from BioPortal
+#DATA NOT CORRECT
+MBCP_clinicalData<-clinicalData(cbio, "brca_mbcproject_wagle_2017")
+
+MBCP_clinicalData#237
+
+#sampleId
+#BX_DCIS
+#BX_LOCATION
+#CALC_MET_SETTING
+#ONCOTREE_CODE
+#CALC_TIME_TO_METS_DX_DAYS
+#CALC_TIME_TO_METS_DX_MONTHS
+
+## Change Sample ID in clinicaldata
+MBCP_clinicalData$sampleId #Ex.- "MBC-MBCProject_GvHkH2Hk-Tumor-SM-AZ5H9"
+
+  ## Change "-" to "." in ClinicalData. The same as RNA_seq samples names (MBC.MBCProject_GvHkH2Hk.Tumor.SM.AZ5HV)
+
+MBCP_clinicalData$sampleId <- gsub("-", ".", MBCP_clinicalData$sampleId, fixed=TRUE) 
+MBCP_clinicalData$sampleId # "MBC.MBCProject_y2F3IgIE.Tumor.SM.GQBAC"
+
+
+
+```
+
+
+In this case the histological type is of interest, for this reason the number of each type is analyzed: 
+
+```{r}
+table(MBCP_clinicalData$BX_HISTOLOGY)
+
+#                   ADENOCARCINOMA  CARCINOMA NOS           DCIS            IDC        #    ILC 
+#                              12             26              1            148             27 
+#    MIXED IDLC 
+#            23 
+```
+
+```{r}
+table(MBCP_clinicalData$DX_STAGE)
+
+#       1      1A       2      2A      2B       3      3A      3B      3C       4 
+#     10       5      25       8       1      21       9       1       1      67 
+
+#    N/A UNKNOWN 
+#     81       8 
+
+```
+
+
+```{r}
+
+table(MBCP_clinicalData$CALC_MET_SETTING)
+
+```
+```{r}
+table(MBCP_clinicalData$BX_LOCATION)
+
+
+```
+
+
+
+
+```{r}
+#OPCIO 2
+#MBCP_clinical_patients <- read.table(file.path("Raw_data/brca_mbcproject_wagle_2017/brca_mbcproject_wagle_2017/data_clinical_patient.txt"), header=TRUE, sep = "\t", fill = TRUE)
+
+
+#MBCP_clinical_patients
+```
+
+
+**MBCProject dataset SAMPLE clinical data**
+
+```{r}
+MBCP_clinical_samples <- read.table(file.path("Raw_data/brca_mbcproject_wagle_2017/brca_mbcproject_wagle_2017/data_clinical_sample.txt"), header=TRUE, sep = "\t", fill = TRUE)
+
+dim(MBCP_clinical_samples)#[1] 237  30
+
+
+
+```
+
+
+``` {r}
+#How many cases:
+
+table(MBCP_clinicalData$BX_DCIS)
+
+MBCP_clinicalData%>%
+  group_by(BX_HISTOLOGY)%>%
+  summarise(n=n())%>%
+  mutate(Freq= n/sum(n))
+
+
+```
+
+
+```{r}
+# ------------------------ NO ADDEDDDDD -----
+#Plot "Histological.Type"
+histological_subtype = as.data.frame(table(MBCP_clinicalData$BX_HISTOLOGY))
+
+ggplot(histological_subtype, aes(x = "", y = Freq, fill = Var1)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) + 
+  theme_void()+
+  scale_fill_brewer(palette="PRGn")
+
+```
+
+
+# 8.2 - Data preparation
+
+
+## Select IDC
+
+```{r}
+# IDC selecition
+
+MBCP_clinicalData_IDC <- MBCP_clinicalData[MBCP_clinicalData$BX_HISTOLOGY == "IDC",]
+MBCP_clinicalData_IDC
+table(MBCP_clinicalData_IDC$BX_HISTOLOGY)
+```
+
+
+    
+## RNA_seq data pre-procesing
+
+```{r}
+
+#
+#Dalate cal 1
+MBCP_RNAseq_2 <- MBCP_RNAseq[, -1]
+
+
+#Dalate duplicated genes:
+dim(MBCP_RNAseq_2) #[1] 50096   147
+
+MBCP_RNAseq_2 <- MBCP_RNAseq_2[!duplicated(MBCP_RNAseq_2$Hugo_Symbol),]
+dim(MBCP_RNAseq_2)#[1] 35149   147
+
+#Convert col Gene name in rowname
+rownames(MBCP_RNAseq_2) <- MBCP_RNAseq_2$Hugo_Symbol
+MBCP_RNAseq_2
+MBCP_RNAseq_2 <- MBCP_RNAseq_2[, -1]
+MBCP_RNAseq_2
+
+# transform the expression data to Z scores
+MBCP_RNAseq_2 <- t(scale(t(MBCP_RNAseq_2)))
+MBCP_RNAseq_2
+```
+
+
+
+## ClinicalData pre-procesing
+
+```{r}
+#Convert tibble class to data.frame
+MBCP_clinicalData_IDC <- as.data.frame(MBCP_clinicalData_IDC)
+
+
+#Convert sampleId in rownames
+rownames(MBCP_clinicalData_IDC) <- MBCP_clinicalData_IDC$sampleId
+MBCP_clinicalData_IDC
+```
+
+
+
+## Match RNAseq - ClinicalData
+
+```{r}
+
+# filter the Z-scores expression data to match the samples in our ClinicalData
+dim(MBCP_RNAseq_2) #[1] 35149   146
+
+MBCP_RNAseq_2 <- MBCP_RNAseq_2[,which(colnames(MBCP_RNAseq_2) %in% rownames(MBCP_clinicalData_IDC))]
+
+dim(MBCP_RNAseq_2) #[1] 35149    90
+dim(MBCP_clinicalData_IDC) #[1] 148 110
+
+
+# filter the ClinicalData to match RNASeq samples
+vector <- c(colnames(MBCP_RNAseq_2))
+length(vector) # 90
+
+MBCP_clinicalData_IDC <- MBCP_clinicalData_IDC[rownames(MBCP_clinicalData_IDC) %in% vector, ]
+dim(MBCP_clinicalData_IDC) 
+
+#Re-ordered CLinical data same order columnames RNAseq data
+idx <- sapply(vector, function(x) {
+    which(rownames(MBCP_clinicalData_IDC) == x)})
+
+MBCP_clinicalData_IDC <- MBCP_clinicalData_IDC[idx,]
+MBCP_clinicalData_IDC
+
+
+# check that sample names match exactly between pdata and Z-scores 
+all((colnames(MBCP_RNAseq_2) == rownames(MBCP_clinicalData_IDC)) == TRUE)
+## [1] TRUE
+
+# create a merged pdata and Z-scores object
+marge_rna_clinical <- data.frame(MBCP_clinicalData_IDC, t(MBCP_RNAseq_2))
+marge_rna_clinical
+
+
+
+```
+
+```{r}
+
+table(marge_rna_clinical$CALC_MET_SETTING) #ok 
+
+marge_rna_clinical$CALC_MET_SETTING <- factor(marge_rna_clinical$CALC_MET_SETTING, c("NO METASTATIC DISEASE PRESENT" ,"N/A" , "METASTATIC DISEASE PRESENT"))
+class(marge_rna_clinical$CALC_MET_SETTING)
+
+
+marge_rna_clinical$CALC_TIME_TO_METS_DX_DAYS <- as.numeric(marge_rna_clinical$CALC_TIME_TO_METS_DX_DAYS)
+marge_rna_clinical
+
+
+```
+
+# 8.3 - MBCP - IDC: gene High / Low groups - TIME TO METASTASI (days)
+
+Encode statistically significant genes as Low | Mid | High and plot survival curves
+
+
+
+
+## ADAMTSL1
+
+```{r}
+# set Z-scale cut-offs 
+  highExpr <- 1.0
+  lowExpr <- -1.0
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$ADAMTSL1_valor <- ifelse(marge_rna_clinical$ADAMTSL1 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$SEMA3F <= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=ADAMTSL1_valor, y= ADAMTSL1)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=ADAMTSL1_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = ADAMTSL1_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - ADAMTSL1") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "ADAMTSL1 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      method = "wilcox.test",# Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = ADAMTSL1, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = ADAMTSL1, y = CALC_TIME_TO_METS_DX_DAYS))
+
+
+```
+
+
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = ADAMTSL1, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = ADAMTSL1, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+
+
+
+
+
+## ANGEL1
+
+```{r}
+# set Z-scale cut-offs 
+  highExpr <- 1.0
+  lowExpr <- -1.0
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$ANGEL1_valor <- ifelse(marge_rna_clinical$ANGEL1 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$ANGEL1 <= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=ANGEL1_valor, y= ANGEL1)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+
+
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=ANGEL1_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = ANGEL1_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - ANGEL1") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "ANGEL1 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c(155             164 , "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      method = "wilcox.test",# Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+
+
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = ANGEL1, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = ANGEL1, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+## ATXN2L
+
+```{r}
+# set Z-scale cut-offs 
+  highExpr <- 1.0
+  lowExpr <- -1.0
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$ATXN2L_valor <- ifelse(marge_rna_clinical$ATXN2L >= highExpr, 'High',
+    ifelse(marge_rna_clinical$ATXN2L <= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=ATXN2L_valor, y= ATXN2L)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=ATXN2L_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = ATXN2L_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - ATXN2L") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "ATXN2L Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      method = "wilcox.test",# Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = ATXN2L, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = ATXN2L, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+## CCL21
+
+```{r}
+summary(marge_rna_clinical$CCL21)
+#  Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#-0.3453 -0.3111 -0.2503 -0.1814 -0.1855  1.5338 
+
+# set Z-scale cut-offs 
+  highExpr <- 0.5
+  lowExpr <- -0.18
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$CCL21_valor <- ifelse(marge_rna_clinical$CCL21 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$CCL21 <= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=CCL21_valor, y= CCL21)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=CCL21_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = CCL21_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - CCL21") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "CCL21 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      method = "wilcox.test",# Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = CCL21, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = CCL21, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+## CCNA1
+
+```{r}
+summary(marge_rna_clinical$CCNA1)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-0.40114 -0.28868 -0.17621  0.12328  0.06512 10.49866 
+
+# set Z-scale cut-offs 
+  highExpr <- 1
+  lowExpr <- -0.2
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$CCNA1_valor <- ifelse(marge_rna_clinical$CCNA1 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$CCNA1 <= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=CCNA1_valor, y= CCNA1)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=CCNA1_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = CCNA1_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - CCNA1") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "CCNA1 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = CCNA1, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = CCNA1, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+
+## CLN3
+
+```{r}
+summary(marge_rna_clinical$CLN3)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-1.24472 -0.63990 -0.28967 -0.02104  0.26273  3.24587 
+
+# set Z-scale cut-offs 
+  highExpr <- 0.5
+  lowExpr <- -0.5
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$CLN3_valor <- ifelse(marge_rna_clinical$CLN3 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$CLN3 <= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=CLN3_valor, y= CLN3)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=CLN3_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = CLN3_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - CLN3") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "CLN3 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = CLN3, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = CLN3, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+## COG3
+
+```{r}
+summary(marge_rna_clinical$COG3)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-1.5348 -0.5985 -0.1350 -0.1277  0.2718  2.2117  
+
+# set Z-scale cut-offs 
+  highExpr <- 0.5
+  lowExpr <- -0.5
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$COG3_valor <- ifelse(marge_rna_clinical$COG3 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$COG3 <= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=COG3_valor, y= COG3)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=COG3_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = COG3_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - COG3") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "COG3 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = COG3, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = COG3, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+
+## DDX58
+
+```{r}
+summary(marge_rna_clinical$DDX58)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-1.03408 -0.59317 -0.29083 -0.01027  0.27726  4.48266
+
+# set Z-scale cut-offs 
+  highExpr <- 0.5
+  lowExpr <- -0.5
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$DDX58_valor <- ifelse(marge_rna_clinical$DDX58 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$DDX58 <= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=DDX58_valor, y= DDX58)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=DDX58_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = DDX58_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - DDX58") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "DDX58 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = DDX58, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = DDX58, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+
+## HS3ST2
+
+```{r}
+summary(marge_rna_clinical$HS3ST2)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-0.67880 -0.48650 -0.23672  0.03373  0.24293  6.85422 
+
+# set Z-scale cut-offs 
+  highExpr <- 1
+  lowExpr <- -0.5
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$HS3ST2_valor <- ifelse(marge_rna_clinical$HS3ST2 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$HS3ST2 <= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=HS3ST2_valor, y= HS3ST2)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=HS3ST2_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = HS3ST2_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - HS3ST2") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "HS3ST2 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = HS3ST2, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = HS3ST2, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+
+## IRX3
+
+```{r}
+summary(marge_rna_clinical$IRX3)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-1.3097 -0.7108 -0.3376 -0.1269  0.3706  2.4272  
+
+# set Z-scale cut-offs 
+  highExpr <- 1
+  lowExpr <- -0.5
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$IRX3_valor <- ifelse(marge_rna_clinical$IRX3 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$IRX3<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=IRX3_valor, y= IRX3)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=IRX3_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = IRX3_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - IRX3") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "IRX3 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = IRX3, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = IRX3, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+## IRX6
+
+```{r}
+summary(marge_rna_clinical$IRX6)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-0.500329 -0.440682 -0.291563 -0.158793  0.006673  2.044621  
+
+# set Z-scale cut-offs 
+  highExpr <- 1
+  lowExpr <- -0.1
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$IRX6_valor <- ifelse(marge_rna_clinical$IRX6 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$IRX6<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=IRX6_valor, y= IRX6)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=IRX6_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = IRX6_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - IRX6") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "IRX6 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = IRX6, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = IRX6, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+## LRFN5
+
+```{r}
+summary(marge_rna_clinical$LRFN5)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-0.76492 -0.60291 -0.40715 -0.06656  0.21726  5.95168 
+
+# set Z-scale cut-offs 
+  highExpr <- 1
+  lowExpr <- -0.6
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$LRFN5_valor <- ifelse(marge_rna_clinical$LRFN5 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$LRFN5<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=LRFN5_valor, y= LRFN5)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=LRFN5_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = LRFN5_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - LRFN5") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "LRFN5 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = LRFN5, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = LRFN5, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+## MAZ
+
+```{r}
+summary(marge_rna_clinical$MAZ)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-1.655596 -0.538099 -0.155842  0.006072  0.431954  3.345128 
+
+# set Z-scale cut-offs 
+  highExpr <- 1.5
+  lowExpr <- -1
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$MAZ_valor <- ifelse(marge_rna_clinical$MAZ >= highExpr, 'High',
+    ifelse(marge_rna_clinical$MAZ<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=MAZ_valor, y= MAZ)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=MAZ_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = MAZ_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - MAZ") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "MAZ Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = MAZ, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = MAZ, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+
+## MMP2
+
+```{r}
+summary(marge_rna_clinical$MMP2)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-0.975881 -0.638849 -0.168484 -0.006773  0.424327  2.861201 
+
+# set Z-scale cut-offs 
+  highExpr <- 1.5
+  lowExpr <- -0.3
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$MMP2_valor <- ifelse(marge_rna_clinical$MMP2 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$MMP2<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=MMP2_valor, y= MMP2)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=MMP2_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = MMP2_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - MMP2") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "MMP2 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = MMP2, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = MMP2, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+## NEK9
+
+```{r}
+summary(marge_rna_clinical$NEK9)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-1.8474 -0.6262 -0.2199 -0.1210  0.2377  3.0401 
+
+# set Z-scale cut-offs 
+  highExpr <- 1
+  lowExpr <- -1
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$NEK9_valor <- ifelse(marge_rna_clinical$NEK9 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$NEK9<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=NEK9_valor, y= NEK9)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=NEK9_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = NEK9_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - NEK9") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "NEK9 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = NEK9, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = NEK9, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+## NETO2
+
+```{r}
+summary(marge_rna_clinical$NETO2)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-1.0032 -0.6614 -0.2379  0.0697  0.5618  4.9958
+
+# set Z-scale cut-offs 
+  highExpr <- 0.5
+  lowExpr <- -0.6
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$NETO2_valor <- ifelse(marge_rna_clinical$NETO2 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$NETO2<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=NETO2_valor, y= NETO2)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=NETO2_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = NETO2_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - NETO2") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "NETO2 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = NETO2, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = NETO2, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+## PRRT2
+
+```{r}
+summary(marge_rna_clinical$PRRT2)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-0.97494 -0.61891 -0.29385 -0.01471  0.27277  4.23910 
+
+# set Z-scale cut-offs 
+  highExpr <- 2
+  lowExpr <- 1
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$PRRT2_valor <- ifelse(marge_rna_clinical$PRRT2 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$PRRT2<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=PRRT2_valor, y= PRRT2)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=PRRT2_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = PRRT2_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - PRRT2") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "PRRT2 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = PRRT2, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = PRRT2, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+## RCBTB1
+
+```{r}
+summary(marge_rna_clinical$RCBTB1)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-2.187153 -0.682472 -0.073351 -0.000345  0.529924  3.522917
+
+# set Z-scale cut-offs 
+  highExpr <- 1
+  lowExpr <- -0.5
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$RCBTB1_valor <- ifelse(marge_rna_clinical$RCBTB1 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$RCBTB1<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=RCBTB1_valor, y= RCBTB1)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=RCBTB1_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = RCBTB1_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - RCBTB1") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "RCBTB1 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = RCBTB1, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = RCBTB1, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+## SALL1
+
+```{r}
+summary(marge_rna_clinical$SALL1)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-1.0150 -0.6105 -0.1374  0.1434  0.4167  3.4762 
+
+# set Z-scale cut-offs 
+  highExpr <- 1
+  lowExpr <- -1
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$SALL1_valor <- ifelse(marge_rna_clinical$SALL1 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$SALL1<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=SALL1_valor, y= SALL1)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=SALL1_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = SALL1_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - SALL1") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "SALL1 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = SALL1, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = SALL1, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+## SLC25A15
+
+```{r}
+summary(marge_rna_clinical$SLC25A15)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-1.51117 -0.59155 -0.03947  0.13067  0.58096  4.30275  
+
+# set Z-scale cut-offs 
+  highExpr <- 1.5
+  lowExpr <- -1
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$SLC25A15_valor <- ifelse(marge_rna_clinical$SLC25A15 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$SLC25A15<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=SLC25A15_valor, y= SLC25A15)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=SLC25A15_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = SLC25A15_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - SLC25A15") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "SLC25A15 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = SLC25A15, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = SLC25A15, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+## STX4
+
+```{r}
+summary(marge_rna_clinical$STX4)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-2.08120 -0.72319 -0.04329 -0.01294  0.44774  4.08763 
+
+# set Z-scale cut-offs 
+  highExpr <- 1.5
+  lowExpr <- -1
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$STX4_valor <- ifelse(marge_rna_clinical$STX4 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$STX4<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=STX4_valor, y= STX4)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=STX4_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = STX4_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - STX4") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "STX4 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = STX4, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = STX4, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+## TBX6
+
+```{r}
+summary(marge_rna_clinical$TBX6)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-0.9209 -0.5411 -0.3084 -0.1439  0.1858  2.4605 
+
+# set Z-scale cut-offs 
+  highExpr <- 0.1
+  lowExpr <- -0
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$TBX6_valor <- ifelse(marge_rna_clinical$TBX6 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$TBX6<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=TBX6_valor, y= TBX6)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=TBX6_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = TBX6_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - TBX6") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "TBX6 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = TBX6, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = TBX6, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+## THSD1
+```{r}
+summary(marge_rna_clinical$THSD1)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-1.8031 -0.7550 -0.1863 -0.1057  0.4565  2.4415  
+
+# set Z-scale cut-offs 
+  highExpr <- 0.5
+  lowExpr <- -0.2
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$THSD1_valor <- ifelse(marge_rna_clinical$THSD1 >= highExpr, 'High',
+    ifelse(marge_rna_clinical$THSD1<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=THSD1_valor, y= THSD1)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=THSD1_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = THSD1_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - THSD1") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "THSD1 Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = THSD1, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = THSD1, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+## TMEM229B
+```{r}
+summary(marge_rna_clinical$TMEM229B)
+#  Min.  1st Qu.   Median     Mean  3rd Qu.     Max. 
+#-1.2649 -0.7802 -0.1630 -0.0289  0.4092  3.3224  
+
+# set Z-scale cut-offs 
+  highExpr <- 1
+  lowExpr <- -0.5
+  
+#Definir que es High, mid and low amb ADAMTSL1
+  marge_rna_clinical$TMEM229B_valor <- ifelse(marge_rna_clinical$TMEM229B >= highExpr, 'High',
+    ifelse(marge_rna_clinical$TMEM229B<= lowExpr, 'Low', 'Mid'))
+```
+
+```{r}
+#Comprovacio
+ggplot(marge_rna_clinical, aes(x=TMEM229B_valor, y= TMEM229B)) + 
+  geom_boxplot()+
+  theme_classic() 
+```
+```{r}
+#ADAMTSL1 - TEMPS SENSE METASTASI ()
+
+my_comparisons_1 <- list( c("High" ,"Low"))
+                         # , c("High" , "Mid"), c("Low", "Mid") )
+
+
+ggplot(marge_rna_clinical, aes(x=TMEM229B_valor, y= CALC_TIME_TO_METS_DX_DAYS, fill = TMEM229B_valor)) + 
+  geom_boxplot()  +
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TIME TO METASTASI - TMEM229B") +
+  xlab("Gene Expression") + ylab("Time to Metastasi (days)") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "TMEM229B Expression") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F", "#868686FF"),
+                    labels=c("High" ,"Low", "Mid")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   stat_compare_means(comparisons = my_comparisons_1,
+                      # Add pairwise comparisons p-value
+                      label.y = c(4000))  #on posar el p.value
+    # Add global p-value
+
+
+
+```
+
+```{r}
+ggplot(data = marge_rna_clinical) +
+  geom_point(mapping = aes(x = TMEM229B, y = CALC_TIME_TO_METS_DX_DAYS))+
+  geom_smooth(mapping = aes(x = TMEM229B, y = CALC_TIME_TO_METS_DX_DAYS))
+
+```
+
+
+
+# 8.4 - GENE SET EXPRESSION in no metastasi vs metastasi
+
+
+
+```{r}
+#ADAMTSL1
+
+#Data preparation, delete N/A
+marge_rna_clinical_MET <- marge_rna_clinical[!(marge_rna_clinical$CALC_MET_SETTING == "N/A"),]
+
+
+
+my_comparisons <- list( c("NO METASTATIC DISEASE PRESENT", "METASTATIC DISEASE PRESENT") )
+```
+
+
+## ADAMTSL1
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= ADAMTSL1, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("ADAMTSL1") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 8)     # Add global p-value
+
+
+```
+
+## ANGEL1
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= ANGEL1, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("ANGEL1") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 8)     # Add global p-value
+
+
+```
+
+## ATXN2L
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= ATXN2L, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("ATXN2L") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 8)     # Add global p-value
+
+
+```
+
+
+## CCL21
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= CCL21, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("CCL21") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 1)     # Add global p-value
+
+
+```
+
+
+## CCNA1
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= CCNA1, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("CCNA1") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 3)     # Add global p-value
+
+
+```
+
+
+## CLN3
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= CLN3, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("CLN3") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 4)     # Add global p-value
+
+
+```
+
+## COG3
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= COG3, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("COG3") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 4)     # Add global p-value
+
+
+```
+
+## DDX58
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= DDX58, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("DDX58") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 3)     # Add global p-value
+
+
+```
+
+## HS3ST2
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= HS3ST2, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("HS3ST2") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 6)     # Add global p-value
+
+
+```
+
+## IRX3
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= IRX3, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("IRX3") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 3)     # Add global p-value
+
+
+```
+
+## IRX6
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= IRX6, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("IRX6") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 1.5)     # Add global p-value
+
+
+```
+
+
+## LRFN5
+
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= LRFN5, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("LRFN5") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 6)     # Add global p-value
+
+
+```
+
+## MAZ
+
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= MAZ, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("MAZ") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 2)     # Add global p-value
+
+
+```
+
+## MMP2
+
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= MMP2, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("MMP2") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 3)     # Add global p-value
+
+
+```
+
+## NEK9
+
+
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= NEK9, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("NEK9") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 2)     # Add global p-value
+
+
+```
+
+
+## NETO2
+
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= NETO2, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("NETO2") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 3)     # Add global p-value
+
+
+```
+
+## PRRT2
+
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= PRRT2, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("PRRT2") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 2.5)     # Add global p-value
+
+
+```
+
+## RCBTB1
+
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= RCBTB1, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("RCBTB1") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 3)     # Add global p-value
+
+
+```
+
+## SALL1
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= SALL1, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("SALL1") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 3)     # Add global p-value
+
+
+```
+
+## SLC25A15
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= SLC25A15, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("SLC25A15") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 4.5)     # Add global p-value
+
+
+```
+
+## STX4
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= STX4, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("STX4") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 4.5)     # Add global p-value
+
+
+```
+
+## TBX6
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= TBX6, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TBX6") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 1)     # Add global p-value
+
+
+```
+
+## THSD1
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= THSD1, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("THSD1") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 2.5)     # Add global p-value
+
+
+```
+
+## TMEM229B
+```{r}
+ggplot(marge_rna_clinical_MET, aes(x=CALC_MET_SETTING, y= TMEM229B, fill = CALC_MET_SETTING)) + 
+  geom_boxplot() + 
+  theme_classic() +
+  
+  #PLOT TITLES
+  ggtitle("TMEM229B") +
+  xlab("") + ylab("Gene Expression") +
+  
+  theme(
+  plot.title = element_text(size=14, face="bold"),
+  #axis.title.x = element_text(color="blue", size=14, face="bold"),
+  #axis.title.y = element_text(color="#993333", size=14, face="bold")
+  ) +
+  
+  # Modify legend titles
+  labs(fill = "Metastasi status") +
+   
+  #Box color
+  scale_fill_manual(values=c("#DFC27D", "#35978F"),
+                    labels=c("NO METASTATIC" ,"METASTATIC")) +
+  geom_jitter(shape=16, position=position_jitter(0.2))+
+  
+  #Statistics
+   #stat_compare_means(comparisons = my_comparisons,# Add pairwise comparisons p-value
+                     # label.y = c(3.1)) + #on posar el p.value
+  stat_compare_means(label.y = 3)     # Add global p-value
+
+
+```
+
+
+

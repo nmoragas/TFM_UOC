@@ -1,0 +1,844 @@
+---
+title: '8.2 METABRIC - VALIDATION'
+author: "Nuria Moragas"
+date: "Octubre 2022"
+
+---
+
+
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(error = TRUE)
+#knitr::opts_chunk$set(echo = T, results ="markup")
+```
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE, results='hide'}
+
+#Load packages
+library(cBioPortalData)
+library(dplyr)
+library(ggplot2)
+library(httr)
+
+
+library(stringr)
+library(biomaRt)
+library(ggplot2)
+library(ggpubr) # estadistica
+
+
+```
+
+
+
+
+# 8.2.1.- Import and study of METABRIC dataset 
+
+ Once METABRIC has been selected, a study of data included is made.
+
+
+**Download genral METABRIC data**
+
+
+```{r}
+
+#Descarregar manualment i carregar (array - z-score)
+
+METABRIC_RNAseq <- read.table(file.path("C:/Users/nmora/Desktop/TFM_R Scrips/Scrips_R/Raw_data/brca_metabric/brca_metabric/data_mrna_agilent_microarray_zscores_ref_all_samples.txt"), header=TRUE, sep = "\t")
+METABRIC_RNAseq
+
+```
+
+
+
+**METABRIC patients clinical data**
+
+ 
+
+``` {r, include = FALSE}
+
+#Obtain the METABRIC clinical data directly from BioPortal 
+#OS_MONTHS - OS_STATUS
+#RFS_MONTHS: disease-free survival in months. RFS_STATUS -0:Not Recurred - 1:Recurred
+cbio <- cBioPortal()
+METABRIC_clinicalData<-clinicalData(cbio, "brca_metabric")
+METABRIC_clinicalData
+
+```
+
+```{r}
+ ## Change "-" to "." in ClinicalData. The same as RNA_seq samples names (MB.0346)
+
+METABRIC_clinicalData$sampleId <- gsub("-", ".", METABRIC_clinicalData$sampleId, fixed=TRUE) 
+METABRIC_clinicalData
+```
+
+
+#look at the data
+```{r}
+
+table(METABRIC_clinicalData$SEX)
+#Female 
+#  2509
+
+
+table(METABRIC_clinicalData$ONCOTREE_CODE)
+#  BRCA BREAST    IDC    ILC   IMMC    MBC   MDLC    PBS 
+#   133     21   1865    192     25      2    269      2 
+
+
+#----------- NOT ADDED
+
+#Plot "Histological.Type"
+histological_subtype = as.data.frame(table(METABRIC_clinicalData$ONCOTREE_CODE))
+
+ggplot(histological_subtype, aes(x = "", y = Freq, fill = Var1)) +
+  geom_bar(stat="identity", width=1, color="white") +
+  coord_polar("y", start=0) + 
+  theme_void()+
+  scale_fill_brewer(palette="BrBG")
+```
+
+#  8.2.2. - METABRIC Data selection
+
+
+## Select IDC
+
+```{r}
+# IDC selecition
+
+METABRIC_clinicalData_IDC <- METABRIC_clinicalData[METABRIC_clinicalData$ONCOTREE_CODE == "IDC",]
+
+METABRIC_clinicalData_IDC
+
+
+```
+
+
+#  8.2.3.- Data pre-processing
+
+
+## RNA_seq data pre-procesing
+```{r}
+
+METABRIC_RNAseq 
+
+```
+
+
+```{r}
+
+#
+#Dalate cal 1
+METABRIC_RNAseq_2 <- METABRIC_RNAseq[, -2]
+
+
+#Dalate duplicated genes:
+dim(METABRIC_RNAseq_2) #[1] 24368  1905
+METABRIC_RNAseq_2 <- METABRIC_RNAseq_2[!duplicated(METABRIC_RNAseq_2$Hugo_Symbol),]
+dim(METABRIC_RNAseq_2)#[1] 24174  1905
+
+#Convert col Gene name in rowname
+rownames(METABRIC_RNAseq_2) <- METABRIC_RNAseq_2$Hugo_Symbol
+METABRIC_RNAseq_2
+METABRIC_RNAseq_2 <- METABRIC_RNAseq_2[, -1]
+METABRIC_RNAseq_2
+
+```
+
+
+
+## ClinicalData pre-procesing
+
+```{r}
+#Convert tibble class to data.frame
+METABRIC_clinicalData_IDC <- as.data.frame(METABRIC_clinicalData_IDC)
+class(METABRIC_clinicalData_IDC)
+
+
+#Convert sampleId in rownames
+rownames(METABRIC_clinicalData_IDC) <- METABRIC_clinicalData_IDC$sampleId
+METABRIC_clinicalData_IDC
+```
+
+
+
+## Match RNAseq - ClinicalData
+
+```{r}
+
+# filter the Z-scores expression data to match the samples in our ClinicalData
+dim(METABRIC_RNAseq_2) #[1] 24174  1904
+
+METABRIC_RNAseq_2 <- METABRIC_RNAseq_2[,which(colnames(METABRIC_RNAseq_2) %in% rownames(METABRIC_clinicalData_IDC))]
+
+dim(METABRIC_RNAseq_2) #[1] 24174  1500
+dim(METABRIC_clinicalData_IDC) #[1] 1865   38
+
+
+# filter the ClinicalData to match RNASeq samples
+vector <- c(colnames(METABRIC_RNAseq_2))
+length(vector) # 1500
+
+METABRIC_clinicalData_IDC <- METABRIC_clinicalData_IDC[rownames(METABRIC_clinicalData_IDC) %in% vector, ]
+dim(METABRIC_clinicalData_IDC) #[1] 1500   38
+
+#Re-ordered CLinical data same order columnames RNAseq data
+idx <- sapply(vector, function(x) {
+    which(rownames(METABRIC_clinicalData_IDC) == x)})
+
+METABRIC_clinicalData_IDC <- METABRIC_clinicalData_IDC[idx,]
+METABRIC_clinicalData_IDC
+
+
+# check that sample names match exactly between pdata and Z-scores 
+all((colnames(METABRIC_RNAseq_2) == rownames(METABRIC_clinicalData_IDC)) == TRUE)
+## [1] TRUE
+
+# create a merged pdata and Z-scores object
+marge_METABRIC <- data.frame(METABRIC_clinicalData_IDC, t(METABRIC_RNAseq_2))
+marge_METABRIC
+
+
+
+```
+
+
+```{r}
+#Prepare phenotypes 
+
+
+marge_METABRIC$OS_MONTHS <- as.numeric(marge_METABRIC$OS_MONTHS)
+marge_METABRIC$status <- as.numeric(gsub(':.*', '', marge_METABRIC$OS_STATUS ))
+
+marge_METABRIC$status_rfs <- as.numeric(gsub(':.*', '', marge_METABRIC$RFS_STATUS ))
+marge_METABRIC$RFS_MONTHS <- as.numeric(marge_METABRIC$RFS_MONTHS)
+
+
+```
+
+
+# 8.2.4. Divide samples into High / Low groups - gene expression
+
+
+##  UP_REGULATED
+```{r}
+#Up regulated genes:
+#, ANGEL1,ATXN2L, CCL21, CLN3, COG3, MAZ, NEK9, PRRT2
+# RCBTB1, SLC25A15, STX4, TBX6, TMEM229B
+
+## PRRT2, STX4, CLN3, CCL21
+
+# set Z-scale cut-offs for high and low expression
+highExpr <- 0.5
+lowExpr <- -0.5
+  
+#Definir que es High, mid and low  
+marge_METABRIC$UP_valor <- 
+  ifelse(
+marge_METABRIC$PRRT2 >= highExpr & 
+marge_METABRIC$STX4 >= highExpr & 
+marge_METABRIC$CLN3 >= highExpr & 
+marge_METABRIC$CCL21 >= highExpr 
+  ,'High',
+    ifelse(
+marge_METABRIC$PRRT2 <= lowExpr & 
+marge_METABRIC$STX4 <= lowExpr & 
+marge_METABRIC$CLN3 <= lowExpr & 
+marge_METABRIC$CCL21 <= lowExpr 
+, 'Low', 'Mid'))
+
+
+
+
+marge_METABRIC$UP_valor <- factor(marge_METABRIC$UP_valor, levels = c("Low", "Mid", "High"))
+
+
+ggplot(marge_METABRIC, aes(x=UP_valor, y= CCL21)) + 
+  geom_boxplot()
+
+
+
+
+marge_METABRIC_UP <- marge_METABRIC[!(marge_METABRIC$UP_valor == "Mid"),]
+
+ggplot(marge_METABRIC_UP, aes(x=UP_valor, y= CCL21)) + 
+  geom_boxplot()
+
+```
+
+
+
+
+```{r}
+
+####################### KAPLAN MEYER - UP_Regulated - OS_STATUS #########
+library(survival)
+library(survminer)
+
+
+#OS_STATUS 0:LIVING 1:DECEASED 
+
+
+table(marge_METABRIC$OS_STATUS)
+# 0:LIVING 1:DECEASED 
+#       634        866 
+#
+
+
+#Crate 
+fit <- survfit(Surv(OS_MONTHS, status) ~ UP_valor, data = marge_METABRIC_UP)
+
+
+#PLOT
+ggsurvplot(fit,data = marge_METABRIC_UP,  
+           
+           ####### TITLE
+           title= "Overall Survival - UP RISK",
+           font.title = c(18, "bold", "black"),
+           
+           ####### Censor Details 
+           censor = TRUE, 
+           censor.shape="|",
+           censor.size = 3,
+           
+           ####### Confidence Intervals 
+           conf.int = TRUE,
+           surv.median.line = "hv",#Add median value
+           
+           ####### Format Axes
+           xlab="Days", # changes xlabel,
+           ylab = "Survival Probability",
+           font.x=c(14,"bold"), # changes x axis labels
+           font.y=c(14,"bold"), # changes y axis labels
+           font.xtickslab=c(10,"plain"), # NUmbers 
+           font.ytickslab=c(10,"plain"),
+           
+           ######## Format Legend
+           legend.title = "Metastasis State",
+           legend.labs = c("High","Low"),
+           #legend = c(1,1), #c(0,0) corresponds to the               "bottom left" and c(1,1) corresponds to the "top             right" position
+           
+           ######## Plot Dimensions
+           surv.plot.height = 1.5, # Default is 0.75
+           
+           ######## Risk Table 
+          risk.table = T, # Adds Risk Table
+           risk.table.height = 0.2, # Adjusts the height of             the risk table (default is 0.25)
+           risk.table.fontsize = 3,
+          
+           ######## p-value details
+           
+           pval=T,
+           pval.size = 5,
+           #pval.coord = c(1,1), 
+          tables.theme = theme_cleantable(),
+           
+          ######## COLOR
+              #Use custom color: c("#E7B800", "#2E9FDF"), Ex 
+               #col = c("#00AFBB", "#E7B800",      
+              #"#FC4E07","#E7B800")
+              # or brewer color (e.g.: "Dark2"), or 
+              # ggsci color (e.g.: "jco")
+           ggtheme = theme_bw(),
+          
+          #palette = c("#00AFBB", "#E7B800", "#FC4E07","#E7B800")
+           palette = "uchicago"
+ 
+)
+
+
+
+
+```
+```{r}
+
+####################### KAPLAN MEYER - VITAL_STATUS #########
+library(survival)
+library(survminer)
+
+table(marge_METABRIC_UP$VITAL_STATUS)
+#     Died of Disease Died of Other Causes               Living 
+#                  19                    8                   12 
+
+#Delate Died of Other Causes
+
+marge_METABRIC_vital <- marge_METABRIC_UP[!(marge_METABRIC_UP$VITAL_STATUS == "Died of Other Causes"),]
+table(marge_METABRIC_vital$VITAL_STATUS)
+#Died of Disease          Living 
+#            19              12 
+
+
+
+marge_METABRIC_vital$UP_valor <- factor(marge_METABRIC_vital$UP_valor, levels = c("Low", "High"))
+
+#Crate 
+fit <- survfit(Surv(OS_MONTHS, status) ~ UP_valor, data = marge_METABRIC_vital)
+
+
+
+
+#PLOT
+ggsurvplot(fit,data = marge_METABRIC_vital,  
+           
+           ####### TITLE
+           title= "Overall Survival - UP_RISK",
+           font.title = c(18, "bold", "black"),
+           
+           ####### Censor Details 
+           censor = TRUE, 
+           censor.shape="|",
+           censor.size = 3,
+           
+           ####### Confidence Intervals 
+           conf.int = TRUE,
+           surv.median.line = "hv",#Add median value
+           
+           ####### Format Axes
+           xlab="Days", # changes xlabel,
+           ylab = "Survival Probability",
+           font.x=c(14,"bold"), # changes x axis labels
+           font.y=c(14,"bold"), # changes y axis labels
+           font.xtickslab=c(10,"plain"), # NUmbers 
+           font.ytickslab=c(10,"plain"),
+           
+           ######## Format Legend
+           legend.title = "Metastasis State",
+           legend.labs = c("High","Low"),
+           #legend = c(1,1), #c(0,0) corresponds to the               "bottom left" and c(1,1) corresponds to the "top             right" position
+           
+           ######## Plot Dimensions
+           surv.plot.height = 1.5, # Default is 0.75
+           
+           ######## Risk Table 
+          risk.table = T, # Adds Risk Table
+           risk.table.height = 0.2, # Adjusts the height of             the risk table (default is 0.25)
+           risk.table.fontsize = 3,
+          
+           ######## p-value details
+           
+           pval=T,
+           pval.size = 5,
+           #pval.coord = c(1,1), 
+          tables.theme = theme_cleantable(),
+           
+          ######## COLOR
+              #Use custom color: c("#E7B800", "#2E9FDF"), Ex 
+               #col = c("#00AFBB", "#E7B800",      
+              #"#FC4E07","#E7B800")
+              # or brewer color (e.g.: "Dark2"), or 
+              # ggsci color (e.g.: "jco")
+           ggtheme = theme_bw(),
+          
+          #palette = c("#00AFBB", "#E7B800", "#FC4E07","#E7B800")
+           palette = "uchicago"
+ 
+)
+
+
+#Diferences:
+ 
+survdiff(my.surv~marge_METABRIC_vital$UP_valor)
+
+```
+
+
+```{r}
+
+####################### KAPLAN MEYER  - RFS_MONTHS - RFS_MONTHS #########
+library(survival)
+library(survminer)
+
+table(marge_METABRIC_UP$RFS_STATUS)
+
+# 0:Not Recurred     1:Recurred 
+#           18             21 
+#
+
+
+#Crate 
+fit_rfs <- survfit(Surv(RFS_MONTHS, status_rfs) ~ UP_valor, data = marge_METABRIC_UP)
+
+
+#PLOT
+ggsurvplot(fit_rfs,data = marge_METABRIC_UP,  
+           
+           ####### TITLE
+           title= "Relapse Free Survival - ADAMTSL1 ",
+           font.title = c(18, "bold", "black"),
+           
+           ####### Censor Details 
+           censor = TRUE, 
+           censor.shape="|",
+           censor.size = 3,
+           
+           ####### Confidence Intervals 
+           conf.int = TRUE,
+           surv.median.line = "hv",#Add median value
+           
+           ####### Format Axes
+           xlab="Days", # changes xlabel,
+           ylab = "RFS Probability",
+           font.x=c(14,"bold"), # changes x axis labels
+           font.y=c(14,"bold"), # changes y axis labels
+           font.xtickslab=c(10,"plain"), # NUmbers 
+           font.ytickslab=c(10,"plain"),
+           
+           ######## Format Legend
+           legend.title = "UP RISK",
+           legend.labs = c("High","Low"),
+           #legend = c(1,1), #c(0,0) corresponds to the               "bottom left" and c(1,1) corresponds to the "top             right" position
+           
+           ######## Plot Dimensions
+           surv.plot.height = 1.5, # Default is 0.75
+           
+           ######## Risk Table 
+          risk.table = T, # Adds Risk Table
+           risk.table.height = 0.2, # Adjusts the height of             the risk table (default is 0.25)
+           risk.table.fontsize = 3,
+          
+           ######## p-value details
+           
+           pval=T,
+           pval.size = 5,
+           #pval.coord = c(1,1), 
+          tables.theme = theme_cleantable(),
+           
+          ######## COLOR
+              #Use custom color: c("#E7B800", "#2E9FDF"), Ex 
+               #col = c("#00AFBB", "#E7B800",      
+              #"#FC4E07","#E7B800")
+              # or brewer color (e.g.: "Dark2"), or 
+              # ggsci color (e.g.: "jco")
+           ggtheme = theme_bw(),
+          
+          #palette = c("#00AFBB", "#E7B800", "#FC4E07","#E7B800")
+           palette = "uchicago"
+ 
+)
+
+
+#Diferences:
+ 
+survdiff(my.surv~marge_METABRIC_MMP2$MMP2_valor)
+
+```
+
+
+
+
+## DOWN REGULATED
+
+##  UP_REGULATED
+```{r}
+#Up regulated genes:
+#, IRX3, THSD1, LRFN5, MMP2, and CCNA1.
+
+
+
+# set Z-scale cut-offs for high and low expression
+highExpr <- 0
+lowExpr <- -0.5
+  
+#Definir que es High, mid and low  
+marge_METABRIC$DOWN_valor <- 
+  ifelse(
+marge_METABRIC$IRX3 >= highExpr & 
+marge_METABRIC$THSD1 >= highExpr & 
+marge_METABRIC$LRFN5 >= highExpr & 
+  marge_METABRIC$CCNA1 >= highExpr & 
+marge_METABRIC$MMP2 >= highExpr 
+  ,'High',
+    ifelse(
+marge_METABRIC$IRX3 <= lowExpr & 
+marge_METABRIC$THSD1 <= lowExpr & 
+marge_METABRIC$LRFN5 <= lowExpr & 
+  marge_METABRIC$CCNA1 <= lowExpr & 
+marge_METABRIC$MMP2 <= lowExpr 
+, 'Low', 'Mid'))
+
+
+
+
+marge_METABRIC$DOWN_valor <- factor(marge_METABRIC$DOWN_valor, levels = c("Low", "Mid", "High"))
+
+
+ggplot(marge_METABRIC, aes(x=DOWN_valor, y= MMP2)) + 
+  geom_boxplot()
+
+
+
+
+marge_METABRIC_DOWN <- marge_METABRIC[!(marge_METABRIC$DOWN_valor == "Mid"),]
+
+ggplot(marge_METABRIC_DOWN, aes(x=DOWN_valor, y= MMP2)) + 
+  geom_boxplot()
+
+```
+```{r}
+
+####################### KAPLAN MEYER - UP_Regulated - OS_STATUS #########
+library(survival)
+library(survminer)
+
+
+#OS_STATUS 0:LIVING 1:DECEASED 
+
+
+table(marge_METABRIC$OS_STATUS)
+# 0:LIVING 1:DECEASED 
+#       634        866 
+#
+
+
+#Crate 
+fit <- survfit(Surv(OS_MONTHS, status) ~ DOWN_valor, data = marge_METABRIC_DOWN)
+
+
+#PLOT
+ggsurvplot(fit,data = marge_METABRIC_DOWN,  
+           
+           ####### TITLE
+           title= "Overall Survival - DOWN RISK",
+           font.title = c(18, "bold", "black"),
+           
+           ####### Censor Details 
+           censor = TRUE, 
+           censor.shape="|",
+           censor.size = 3,
+           
+           ####### Confidence Intervals 
+           conf.int = TRUE,
+           surv.median.line = "hv",#Add median value
+           
+           ####### Format Axes
+           xlab="Days", # changes xlabel,
+           ylab = "Survival Probability",
+           font.x=c(14,"bold"), # changes x axis labels
+           font.y=c(14,"bold"), # changes y axis labels
+           font.xtickslab=c(10,"plain"), # NUmbers 
+           font.ytickslab=c(10,"plain"),
+           
+           ######## Format Legend
+           legend.title = "DOWN_RISK",
+           legend.labs = c("Low", "High"),
+           #legend = c(1,1), #c(0,0) corresponds to the               "bottom left" and c(1,1) corresponds to the "top             right" position
+           
+           ######## Plot Dimensions
+           surv.plot.height = 1.5, # Default is 0.75
+           
+           ######## Risk Table 
+          risk.table = T, # Adds Risk Table
+           risk.table.height = 0.2, # Adjusts the height of             the risk table (default is 0.25)
+           risk.table.fontsize = 3,
+          
+           ######## p-value details
+           
+           pval=T,
+           pval.size = 5,
+           #pval.coord = c(1,1), 
+          tables.theme = theme_cleantable(),
+           
+          ######## COLOR
+              #Use custom color: c("#E7B800", "#2E9FDF"), Ex 
+               #col = c("#00AFBB", "#E7B800",      
+              #"#FC4E07","#E7B800")
+              # or brewer color (e.g.: "Dark2"), or 
+              # ggsci color (e.g.: "jco")
+           ggtheme = theme_bw(),
+          
+          #palette = c("#00AFBB", "#E7B800", "#FC4E07","#E7B800")
+           palette = "uchicago"
+ 
+)
+
+
+
+
+```
+
+```{r}
+
+####################### KAPLAN MEYER - VITAL_STATUS #########
+library(survival)
+library(survminer)
+
+table(marge_METABRIC_DOWN$VITAL_STATUS)
+#     Died of Disease Died of Other Causes               Living 
+#                    16                   12                   23 
+
+#Delate Died of Other Causes
+
+marge_METABRIC_vital <- marge_METABRIC_DOWN[!(marge_METABRIC_DOWN$VITAL_STATUS == "Died of Other Causes"),]
+table(marge_METABRIC_vital$VITAL_STATUS)
+#Died of Disease          Living 
+#             16              23 
+
+
+
+marge_METABRIC_vital$DOWN_valor <- factor(marge_METABRIC_vital$DOWN_valor, levels = c("Low", "High"))
+
+#Crate 
+fit <- survfit(Surv(OS_MONTHS, status) ~ DOWN_valor, data = marge_METABRIC_vital)
+
+
+
+
+#PLOT
+ggsurvplot(fit,data = marge_METABRIC_vital,  
+           
+           ####### TITLE
+           title= "Overall Survival - DOWN_RISK",
+           font.title = c(18, "bold", "black"),
+           
+           ####### Censor Details 
+           censor = TRUE, 
+           censor.shape="|",
+           censor.size = 3,
+           
+           ####### Confidence Intervals 
+           conf.int = TRUE,
+           surv.median.line = "hv",#Add median value
+           
+           ####### Format Axes
+           xlab="Days", # changes xlabel,
+           ylab = "Survival Probability",
+           font.x=c(14,"bold"), # changes x axis labels
+           font.y=c(14,"bold"), # changes y axis labels
+           font.xtickslab=c(10,"plain"), # NUmbers 
+           font.ytickslab=c(10,"plain"),
+           
+           ######## Format Legend
+           legend.title = "Metastasis State",
+           legend.labs = c("Low","High"),
+           #legend = c(1,1), #c(0,0) corresponds to the               "bottom left" and c(1,1) corresponds to the "top             right" position
+           
+           ######## Plot Dimensions
+           surv.plot.height = 1.5, # Default is 0.75
+           
+           ######## Risk Table 
+          risk.table = T, # Adds Risk Table
+           risk.table.height = 0.2, # Adjusts the height of             the risk table (default is 0.25)
+           risk.table.fontsize = 3,
+          
+           ######## p-value details
+           
+           pval=T,
+           pval.size = 5,
+           #pval.coord = c(1,1), 
+          tables.theme = theme_cleantable(),
+           
+          ######## COLOR
+              #Use custom color: c("#E7B800", "#2E9FDF"), Ex 
+               #col = c("#00AFBB", "#E7B800",      
+              #"#FC4E07","#E7B800")
+              # or brewer color (e.g.: "Dark2"), or 
+              # ggsci color (e.g.: "jco")
+           ggtheme = theme_bw(),
+          
+          #palette = c("#00AFBB", "#E7B800", "#FC4E07","#E7B800")
+           palette = "uchicago"
+ 
+)
+
+
+#Diferences:
+ 
+survdiff(my.surv~marge_METABRIC_vital$UP_valor)
+
+```
+```{r}
+
+####################### KAPLAN MEYER  - RFS_MONTHS - RFS_MONTHS #########
+library(survival)
+library(survminer)
+
+table(marge_METABRIC_DOWN$RFS_STATUS)
+
+# 0:Not Recurred     1:Recurred 
+#           33             18 
+#
+
+
+#Crate 
+fit_rfs <- survfit(Surv(RFS_MONTHS, status_rfs) ~ DOWN_valor, data = marge_METABRIC_DOWN)
+
+
+#PLOT
+ggsurvplot(fit_rfs,data = marge_METABRIC_DOWN,  
+           
+           ####### TITLE
+           title= "Relapse Free Survival - DOWN_RISK ",
+           font.title = c(18, "bold", "black"),
+           
+           ####### Censor Details 
+           censor = TRUE, 
+           censor.shape="|",
+           censor.size = 3,
+           
+           ####### Confidence Intervals 
+           conf.int = TRUE,
+           surv.median.line = "hv",#Add median value
+           
+           ####### Format Axes
+           xlab="Days", # changes xlabel,
+           ylab = "RFS Probability",
+           font.x=c(14,"bold"), # changes x axis labels
+           font.y=c(14,"bold"), # changes y axis labels
+           font.xtickslab=c(10,"plain"), # NUmbers 
+           font.ytickslab=c(10,"plain"),
+           
+           ######## Format Legend
+           legend.title = "DOWN RISK",
+           legend.labs = c("Low","High"),
+           #legend = c(1,1), #c(0,0) corresponds to the               "bottom left" and c(1,1) corresponds to the "top             right" position
+           
+           ######## Plot Dimensions
+           surv.plot.height = 1.5, # Default is 0.75
+           
+           ######## Risk Table 
+          risk.table = T, # Adds Risk Table
+           risk.table.height = 0.2, # Adjusts the height of             the risk table (default is 0.25)
+           risk.table.fontsize = 3,
+          
+           ######## p-value details
+           
+           pval=T,
+           pval.size = 5,
+           #pval.coord = c(1,1), 
+          tables.theme = theme_cleantable(),
+           
+          ######## COLOR
+              #Use custom color: c("#E7B800", "#2E9FDF"), Ex 
+               #col = c("#00AFBB", "#E7B800",      
+              #"#FC4E07","#E7B800")
+              # or brewer color (e.g.: "Dark2"), or 
+              # ggsci color (e.g.: "jco")
+           ggtheme = theme_bw(),
+          
+          #palette = c("#00AFBB", "#E7B800", "#FC4E07","#E7B800")
+           palette = "uchicago"
+ 
+)
+
+
+#Diferences:
+ 
+survdiff(my.surv~marge_METABRIC_MMP2$MMP2_valor)
+
+```
+
+
+
+
+```{r}
+#Diferences:
+ 
+survdiff(my.surv~marge_METABRIC_ADAMTSL1$ADAMTSL1_valor)
+
+```
+
+
+
+
+
